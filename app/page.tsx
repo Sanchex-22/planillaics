@@ -1,30 +1,43 @@
-import { cookies } from "next/headers"
-import { createClient } from "@/lib/supabase/server"
+// File: sanchex-22/planillaics/planillaics-c9bc5f2d130ae3a5668ef2ea9d14f2e5025f271e/app/page.tsx
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, DollarSign, TrendingUp, Calendar } from "lucide-react"
 import { SidebarNav } from "@/components/sidebar-nav"
+import { db } from "@/lib/db/db";
+// NUEVA IMPORTACIÓN
 
 export default async function DashboardPage() {
-  const cookieStore = cookies()
-  const supabase = createClient(cookieStore)
+  // NOTA: Se asume que obtendremos el ID de la compañía de la autenticación en un
+  // futuro, por ahora, buscamos la primera o usamos un mock.
+  const firstCompany = await db.company.findFirst();
+  const currentCompanyId = firstCompany?.id || "default-company-id";
 
-  // TODO: Implementar lógica para obtener la compañía actual.
-  // Por ahora, asumimos que no se necesita para las métricas principales.
+  const currentMonth = new Date().toISOString().slice(0, 7) // YYYY-MM
 
-  const { count: activeEmployees, error: employeesError } = await supabase
-    .from("employees")
-    .select("*", { count: "exact", head: true })
-    .eq("estado", "activo")
+  // 1. Empleados Activos
+  const activeEmployees = await db.employee.count({
+    where: {
+      companiaId: currentCompanyId,
+      estado: "activo"
+    }
+  })
 
-  const currentMonth = new Date().toISOString().slice(0, 7)
-  const { data: currentMonthPayroll, error: payrollError } = await supabase
-    .from("payroll_entries")
-    .select("salario_neto, salario_bruto")
-    .like("periodo", `${currentMonth}%`)
+  // 2. Data de Planilla del Mes
+  const currentMonthPayroll = await db.payrollEntry.findMany({
+    where: {
+      companiaId: currentCompanyId,
+      periodo: {
+        startsWith: currentMonth
+      }
+    },
+    select: {
+      salarioNeto: true,
+      salarioBruto: true
+    }
+  })
 
-  const totalPayroll = currentMonthPayroll?.reduce((sum, entry) => sum + (entry.salario_neto || 0), 0) || 0
-  const totalGross = currentMonthPayroll?.reduce((sum, entry) => sum + (entry.salario_bruto || 0), 0) || 0
+  const totalPayroll = currentMonthPayroll?.reduce((sum, entry) => sum + (entry.salarioNeto || 0), 0) || 0
+  const totalGross = currentMonthPayroll?.reduce((sum, entry) => sum + (entry.salarioBruto || 0), 0) || 0
 
   return (
     <div className="flex min-h-screen bg-background">
