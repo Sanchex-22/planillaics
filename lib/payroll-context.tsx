@@ -1,443 +1,602 @@
+// File: lib/payroll-context.tsx (MODIFICADO COMPLETAMENTE)
+
 "use client"
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
-import type {
-  Company,
-  User,
-  Employee,
-  LegalParameters,
-  ISRBracket,
-  PayrollEntry,
-  DecimoTercerMes,
-  SIPEPayment,
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react"
+import { toast } from "@/components/ui/use-toast"
+import { 
+  Company, 
+  Employee, 
+  LegalParameters, 
+  ISRBracket, 
+  PayrollEntry, 
+  DecimoTercerMes, 
+  SIPEPayment, 
+  PayrollCalculationResult 
 } from "./types"
+import { apiFetcher } from "./utils"
+import { PayrollCalculationInput } from "./server-calculations" // Importar el tipo de input
+
+// =================================================================
+// 1. TYPING AND INITIAL STATE
+// =================================================================
 
 interface PayrollContextType {
+  // Data States
   companies: Company[]
-  currentCompanyId: string | null
-  currentUser: User | null
-  setCurrentCompanyId: (id: string) => void
-  addCompany: (company: Omit<Company, "id">) => void
-  updateCompany: (id: string, company: Partial<Company>) => void
-
-  // Existing state (now filtered by company)
+  currentCompany: Company | null
   employees: Employee[]
   legalParameters: LegalParameters[]
   isrBrackets: ISRBracket[]
   payrollEntries: PayrollEntry[]
-  decimoTercerMes: DecimoTercerMes[]
+  decimoEntries: DecimoTercerMes[]
   sipePayments: SIPEPayment[]
-  addEmployee: (employee: Omit<Employee, "id" | "companiaId">) => void
-  updateEmployee: (id: string, employee: Partial<Employee>) => void
-  deleteEmployee: (id: string) => void
-  clearAllEmployees: () => void
-  addLegalParameter: (param: Omit<LegalParameters, "id" | "companiaId">) => void
-  updateLegalParameter: (id: string, param: Partial<LegalParameters>) => void
-  addPayrollEntry: (entry: Omit<PayrollEntry, "id" | "companiaId">) => void
-  updatePayrollEntry: (id: string, entry: Partial<PayrollEntry>) => void
-  addDecimoTercerMes: (decimo: Omit<DecimoTercerMes, "id" | "companiaId">) => void
-  updateISRBrackets: (brackets: Omit<ISRBracket, "companiaId">[]) => void
-  addOrUpdateSIPEPayment: (payment: Omit<SIPEPayment, "companiaId">) => void
-  updateSIPEPaymentStatus: (
-    periodo: string,
-    estado: "pendiente" | "pagado",
-    fechaPago?: string,
-    referenciaPago?: string,
-  ) => void
-  isHydrated: boolean
+
+  // Loading States
+  isLoading: boolean
+
+  // Filters
+  currentPeriod: string
+  currentYear: number
+
+  // Actions
+  selectCompany: (companyId: string | null) => void
+  selectPeriod: (period: string) => void
+  selectYear: (year: number) => void
+
+  // CRUD Operations
+  addCompany: (data: Omit<Company, 'id'>) => Promise<Company>
+  updateCompany: (id: string, data: Partial<Company>) => Promise<Company>
+  deleteCompany: (id: string) => Promise<void>
+  
+  addEmployee: (data: Omit<Employee, 'id'>) => Promise<Employee>
+  updateEmployee: (id: string, data: Partial<Employee>) => Promise<Employee>
+  deleteEmployee: (id: string) => Promise<void>
+  clearAllEmployees: () => Promise<void>
+
+  addLegalParameter: (data: Omit<LegalParameters, 'id'>) => Promise<LegalParameters>
+  updateLegalParameter: (id: string, data: Partial<LegalParameters>) => Promise<LegalParameters>
+  deleteLegalParameter: (id: string) => Promise<void>
+
+  updateISRBrackets: (brackets: Omit<ISRBracket, 'id'>[]) => Promise<void>
+  
+  savePayrollEntries: (entries: PayrollEntry[]) => Promise<PayrollEntry[]>
+  deletePayrollEntry: (id: string) => Promise<void>
+  deletePeriodPayroll: (period: string) => Promise<void>
+
+  saveDecimoEntries: (entries: DecimoTercerMes[]) => Promise<DecimoTercerMes[]>
+  deleteDecimoEntry: (id: string) => Promise<void>
+  deleteYearDecimo: (year: number) => Promise<void>
+
+  saveSIPEPayment: (data: Omit<SIPEPayment, 'id'>) => Promise<SIPEPayment>
+  deleteSIPEPayment: (id: string) => Promise<void>
+
+  // Calculation Operations (via API)
+  calculatePayrollApi: (input: Omit<PayrollCalculationInput, 'legalParameters' | 'isrBrackets'> & { currentLegalParameters: LegalParameters[], currentISRBrackets: ISRBracket[] }) => Promise<PayrollCalculationResult>
+  calculateDecimoApi: (employeeId: string, anio: number) => Promise<DecimoTercerMes>
+  calculateSIPEApi: (periodo: string) => Promise<SIPEPayment>
 }
 
 const PayrollContext = createContext<PayrollContextType | undefined>(undefined)
 
-const generateId = () => Math.random().toString(36).substring(2) + Date.now().toString(36)
+// =================================================================
+// 2. FETCHING AND DATA REVALIDATION LOGIC
+// =================================================================
 
-const createDefaultISRBrackets = (companiaId: string): ISRBracket[] => [
-  { id: generateId(), companiaId, desde: 0, hasta: 11000, porcentaje: 0, deduccionFija: 0 },
-  { id: generateId(), companiaId, desde: 11000, hasta: 50000, porcentaje: 15, deduccionFija: 0 },
-  { id: generateId(), companiaId, desde: 50000, hasta: null, porcentaje: 25, deduccionFija: 5850 },
-]
+const localStorageKey = "planillaics:selectedCompanyId"
 
-const createDefaultLegalParameters = (companiaId: string): LegalParameters[] => [
-  {
-    id: generateId(),
-    companiaId,
-    nombre: "Seguro Social Empleado",
-    tipo: "seguro_social_empleado",
-    porcentaje: 9.75,
-    activo: true,
-    fechaVigencia: "2025-01-01",
-  },
-  {
-    id: generateId(),
-    companiaId,
-    nombre: "Seguro Social Empleador",
-    tipo: "seguro_social_empleador",
-    porcentaje: 13.25,
-    activo: true,
-    fechaVigencia: "2025-01-01",
-  },
-  {
-    id: generateId(),
-    companiaId,
-    nombre: "Seguro Educativo Empleado",
-    tipo: "seguro_educativo",
-    porcentaje: 1.25,
-    activo: true,
-    fechaVigencia: "2025-01-01",
-  },
-  {
-    id: generateId(),
-    companiaId,
-    nombre: "Seguro Educativo Empleador",
-    tipo: "seguro_educativo_empleador",
-    porcentaje: 1.5,
-    activo: true,
-    fechaVigencia: "2025-01-01",
-  },
-  {
-    id: generateId(),
-    companiaId,
-    nombre: "Riesgo Profesional",
-    tipo: "riesgo_profesional",
-    porcentaje: 0.98,
-    activo: true,
-    fechaVigencia: "2025-01-01",
-  },
-]
-
-export function PayrollProvider({ children }: { children: ReactNode }) {
-  const [isHydrated, setIsHydrated] = useState(false)
-
+export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [companies, setCompanies] = useState<Company[]>([])
   const [currentCompanyId, setCurrentCompanyId] = useState<string | null>(null)
-  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [legalParameters, setLegalParameters] = useState<LegalParameters[]>([])
+  const [isrBrackets, setISRBrackets] = useState<ISRBracket[]>([])
+  const [payrollEntries, setPayrollEntries] = useState<PayrollEntry[]>([])
+  const [decimoEntries, setDecimoEntries] = useState<DecimoTercerMes[]>([])
+  const [sipePayments, setSIPEPayments] = useState<SIPEPayment[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [currentPeriod, setCurrentPeriod] = useState(new Date().toISOString().slice(0, 7)) // YYYY-MM
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear())
 
-  const [allEmployees, setAllEmployees] = useState<Employee[]>([])
-  const [allLegalParameters, setAllLegalParameters] = useState<LegalParameters[]>([])
-  const [allIsrBrackets, setAllIsrBrackets] = useState<ISRBracket[]>([])
-  const [allPayrollEntries, setAllPayrollEntries] = useState<PayrollEntry[]>([])
-  const [allDecimoTercerMes, setAllDecimoTercerMes] = useState<DecimoTercerMes[]>([])
-  const [allSipePayments, setAllSipePayments] = useState<SIPEPayment[]>([])
-
-  const employees = currentCompanyId ? allEmployees.filter((e) => e.companiaId === currentCompanyId) : []
-  const legalParameters = currentCompanyId ? allLegalParameters.filter((p) => p.companiaId === currentCompanyId) : []
-  const isrBrackets = currentCompanyId ? allIsrBrackets.filter((b) => b.companiaId === currentCompanyId) : []
-  const payrollEntries = currentCompanyId ? allPayrollEntries.filter((e) => e.companiaId === currentCompanyId) : []
-  const decimoTercerMes = currentCompanyId ? allDecimoTercerMes.filter((d) => d.companiaId === currentCompanyId) : []
-  const sipePayments = currentCompanyId ? allSipePayments.filter((s) => s.companiaId === currentCompanyId) : []
-
-  useEffect(() => {
-    const loadData = () => {
-      try {
-        // Load companies
-        const storedCompanies = localStorage.getItem("payroll_companies")
-        if (storedCompanies) {
-          const parsed = JSON.parse(storedCompanies)
-          setCompanies(parsed)
-          console.log("[v0] Loaded companies:", parsed.length)
-        } else {
-          // Create default company if none exists
-          const defaultCompany: Company = {
-            id: generateId(),
-            nombre: "Mi Empresa",
-            ruc: "",
-            activo: true,
-            fechaCreacion: new Date().toISOString(),
-          }
-          setCompanies([defaultCompany])
-          localStorage.setItem("payroll_companies", JSON.stringify([defaultCompany]))
-          console.log("[v0] Created default company")
-        }
-
-        // Load current user (mock for now - in production this would come from auth)
-        const storedUser = localStorage.getItem("payroll_current_user")
-        if (storedUser) {
-          setCurrentUser(JSON.parse(storedUser))
-        } else {
-          // Create default super admin user
-          const defaultUser: User = {
-            id: generateId(),
-            nombre: "Administrador",
-            email: "admin@empresa.com",
-            rol: "super_admin",
-            companias: [], // Super admin has access to all companies
-            activo: true,
-          }
-          setCurrentUser(defaultUser)
-          localStorage.setItem("payroll_current_user", JSON.stringify(defaultUser))
-        }
-
-        // Load current company selection
-        const storedCurrentCompany = localStorage.getItem("payroll_current_company_id")
-        if (storedCurrentCompany) {
-          setCurrentCompanyId(storedCurrentCompany)
-        }
-
-        // Load all data
-        const storedEmployees = localStorage.getItem("payroll_employees")
-        const storedParams = localStorage.getItem("payroll_legal_parameters")
-        const storedISR = localStorage.getItem("payroll_isr_brackets")
-        const storedPayroll = localStorage.getItem("payroll_entries")
-        const storedDecimo = localStorage.getItem("payroll_decimo")
-        const storedSipe = localStorage.getItem("payroll_sipe_payments")
-
-        if (storedEmployees) {
-          const parsed = JSON.parse(storedEmployees)
-          console.log("[v0] Loaded employees:", parsed.length)
-          setAllEmployees(parsed)
-        }
-        if (storedParams) {
-          setAllLegalParameters(JSON.parse(storedParams))
-        }
-        if (storedISR) {
-          setAllIsrBrackets(JSON.parse(storedISR))
-        }
-        if (storedPayroll) {
-          const parsed = JSON.parse(storedPayroll)
-          console.log("[v0] Loaded payroll entries:", parsed.length)
-          setAllPayrollEntries(parsed)
-        }
-        if (storedDecimo) {
-          setAllDecimoTercerMes(JSON.parse(storedDecimo))
-        }
-        if (storedSipe) {
-          setAllSipePayments(JSON.parse(storedSipe))
-        }
-      } catch (error) {
-        console.error("[v0] Error loading data from localStorage:", error)
-      } finally {
-        setIsHydrated(true)
-      }
+  const currentCompany = useMemo(
+    () => companies.find((c) => c.id === currentCompanyId) || null,
+    [companies, currentCompanyId],
+  )
+  
+  // Helper para obtener el ID de la compañía
+  const getCompanyId = useCallback(() => {
+    if (!currentCompanyId) {
+      toast({
+        title: "Advertencia",
+        description: "Seleccione una compañía primero.",
+        variant: "warning",
+      })
+      return null
     }
-    loadData()
+    return currentCompanyId
+  }, [currentCompanyId])
+
+
+  // =================================================================
+  // Fetchers (Revalidation functions)
+  // =================================================================
+
+  const fetchAllCompanies = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const data = await apiFetcher<Company[]>("/api/companies")
+      setCompanies(data)
+    } catch (e) {
+      console.error(e)
+      toast({
+        title: "Error de Carga",
+        description: "No se pudieron cargar las compañías.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }, [])
 
+  const fetchCompanyData = useCallback(async (companiaId: string) => {
+    setIsLoading(true)
+    try {
+      const [employees, parameters, brackets, payrolls, decimos, sipes] = await Promise.all([
+        apiFetcher<Employee[]>(`/api/employees`, { params: { companiaId } }),
+        apiFetcher<LegalParameters[]>(`/api/legal-parameters`, { params: { companiaId } }),
+        apiFetcher<ISRBracket[]>(`/api/isr-brackets`, { params: { companiaId } }),
+        apiFetcher<PayrollEntry[]>(`/api/payroll-entries`, { params: { companiaId, periodo: currentPeriod.slice(0, 7) } }),
+        apiFetcher<DecimoTercerMes[]>(`/api/decimo-entries`, { params: { companiaId, anio: currentYear } }),
+        apiFetcher<SIPEPayment[]>(`/api/sipe-payments`, { params: { companiaId } }),
+      ])
+
+      setEmployees(employees)
+      setLegalParameters(parameters)
+      setISRBrackets(brackets)
+      setPayrollEntries(payrolls)
+      setDecimoEntries(decimos)
+      setSIPEPayments(sipes)
+      
+    } catch (e) {
+      console.error(e)
+      toast({
+        title: "Error de Carga",
+        description: "No se pudieron cargar los datos de la compañía seleccionada.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }, [currentPeriod, currentYear]) // Dependencias para re-ejecutar si cambian los filtros de periodo
+
+  // =================================================================
+  // Effects
+  // =================================================================
+  
+  // 1. Inicialización y selección de compañía guardada
   useEffect(() => {
-    if (isHydrated && companies.length > 0) {
-      localStorage.setItem("payroll_companies", JSON.stringify(companies))
+    fetchAllCompanies()
+    const savedId = localStorage.getItem(localStorageKey)
+    if (savedId) {
+      setCurrentCompanyId(savedId)
     }
-  }, [companies, isHydrated])
+  }, [fetchAllCompanies])
 
+  // 2. Carga de datos de la compañía seleccionada
   useEffect(() => {
-    if (isHydrated && currentCompanyId) {
-      localStorage.setItem("payroll_current_company_id", currentCompanyId)
-    }
-  }, [currentCompanyId, isHydrated])
-
-  // Save all data to localStorage
-  useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem("payroll_employees", JSON.stringify(allEmployees))
-    }
-  }, [allEmployees, isHydrated])
-
-  useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem("payroll_legal_parameters", JSON.stringify(allLegalParameters))
-    }
-  }, [allLegalParameters, isHydrated])
-
-  useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem("payroll_isr_brackets", JSON.stringify(allIsrBrackets))
-    }
-  }, [allIsrBrackets, isHydrated])
-
-  useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem("payroll_entries", JSON.stringify(allPayrollEntries))
-    }
-  }, [allPayrollEntries, isHydrated])
-
-  useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem("payroll_decimo", JSON.stringify(allDecimoTercerMes))
-    }
-  }, [allDecimoTercerMes, isHydrated])
-
-  useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem("payroll_sipe_payments", JSON.stringify(allSipePayments))
-    }
-  }, [allSipePayments, isHydrated])
-
-  useEffect(() => {
-    if (currentCompanyId && isHydrated) {
-      const hasParams = allLegalParameters.some((p) => p.companiaId === currentCompanyId)
-      const hasBrackets = allIsrBrackets.some((b) => b.companiaId === currentCompanyId)
-
-      if (!hasParams) {
-        const defaultParams = createDefaultLegalParameters(currentCompanyId)
-        setAllLegalParameters((prev) => [...prev, ...defaultParams])
-        console.log("[v0] Created default legal parameters for company:", currentCompanyId)
-      }
-
-      if (!hasBrackets) {
-        const defaultBrackets = createDefaultISRBrackets(currentCompanyId)
-        setAllIsrBrackets((prev) => [...prev, ...defaultBrackets])
-        console.log("[v0] Created default ISR brackets for company:", currentCompanyId)
-      }
-
-      const riesgoProfParam = allLegalParameters.find(
-        (p) => p.companiaId === currentCompanyId && p.tipo === "riesgo_profesional" && p.activo,
-      )
-      if (riesgoProfParam && riesgoProfParam.porcentaje === 0.56) {
-        console.log("[v0] Updating Riesgo Profesional rate from 0.56% to 0.98%")
-        setAllLegalParameters((prev) => prev.map((p) => (p.id === riesgoProfParam.id ? { ...p, porcentaje: 0.98 } : p)))
-      }
-    }
-  }, [currentCompanyId, isHydrated, allLegalParameters, allIsrBrackets])
-
-  const addCompany = (company: Omit<Company, "id">) => {
-    const newCompany = { ...company, id: generateId() }
-    setCompanies((prev) => [...prev, newCompany])
-    console.log("[v0] Added company:", newCompany)
-  }
-
-  const updateCompany = (id: string, company: Partial<Company>) => {
-    setCompanies((prev) => prev.map((c) => (c.id === id ? { ...c, ...company } : c)))
-  }
-
-  const addEmployee = (employee: Omit<Employee, "id" | "companiaId">) => {
-    if (!currentCompanyId) {
-      console.error("[v0] Cannot add employee: no company selected")
-      return
-    }
-    const newEmployee = { ...employee, id: generateId(), companiaId: currentCompanyId }
-    console.log("[v0] Adding employee:", newEmployee)
-    setAllEmployees((prev) => [...prev, newEmployee])
-  }
-
-  const updateEmployee = (id: string, employee: Partial<Employee>) => {
-    setAllEmployees((prev) => prev.map((emp) => (emp.id === id ? { ...emp, ...employee } : emp)))
-  }
-
-  const deleteEmployee = (id: string) => {
-    setAllEmployees((prev) => prev.filter((emp) => emp.id !== id))
-  }
-
-  const clearAllEmployees = () => {
-    if (!currentCompanyId) {
-      console.error("[v0] Cannot clear employees: no company selected")
-      return
-    }
-    console.log("[v0] Clearing all employees for company:", currentCompanyId)
-    // Remove all employees for current company
-    setAllEmployees((prev) => prev.filter((emp) => emp.companiaId !== currentCompanyId))
-    // Also clear related payroll entries
-    setAllPayrollEntries((prev) => prev.filter((entry) => entry.companiaId !== currentCompanyId))
-    // Clear décimo calculations
-    setAllDecimoTercerMes((prev) => prev.filter((decimo) => decimo.companiaId !== currentCompanyId))
-    // Clear SIPE payments
-    setAllSipePayments((prev) => prev.filter((sipe) => sipe.companiaId !== currentCompanyId))
-    console.log("[v0] All employee data cleared successfully")
-  }
-
-  const addLegalParameter = (param: Omit<LegalParameters, "id" | "companiaId">) => {
-    if (!currentCompanyId) return
-    const newParam = { ...param, id: generateId(), companiaId: currentCompanyId }
-    setAllLegalParameters((prev) => [...prev, newParam])
-  }
-
-  const updateLegalParameter = (id: string, param: Partial<LegalParameters>) => {
-    setAllLegalParameters((prev) => prev.map((p) => (p.id === id ? { ...p, ...param } : p)))
-  }
-
-  const addPayrollEntry = (entry: Omit<PayrollEntry, "id" | "companiaId">) => {
-    if (!currentCompanyId) return
-    const newEntry = { ...entry, id: generateId(), companiaId: currentCompanyId }
-    console.log("[v0] Adding payroll entry:", newEntry)
-    setAllPayrollEntries((prev) => [...prev, newEntry])
-  }
-
-  const updatePayrollEntry = (id: string, entry: Partial<PayrollEntry>) => {
-    setAllPayrollEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...entry } : e)))
-  }
-
-  const addDecimoTercerMes = (decimo: Omit<DecimoTercerMes, "id" | "companiaId">) => {
-    if (!currentCompanyId) return
-    const newDecimo = { ...decimo, id: generateId(), companiaId: currentCompanyId }
-    setAllDecimoTercerMes((prev) => [...prev, newDecimo])
-  }
-
-  const updateISRBrackets = (brackets: Omit<ISRBracket, "companiaId">[]) => {
-    if (!currentCompanyId) return
-    // Remove old brackets for this company and add new ones
-    const otherBrackets = allIsrBrackets.filter((b) => b.companiaId !== currentCompanyId)
-    const newBrackets = brackets.map((b) => ({ ...b, companiaId: currentCompanyId }))
-    setAllIsrBrackets([...otherBrackets, ...newBrackets])
-  }
-
-  const addOrUpdateSIPEPayment = (payment: Omit<SIPEPayment, "companiaId">) => {
-    if (!currentCompanyId) return
-
-    const existingIndex = allSipePayments.findIndex(
-      (p) => p.companiaId === currentCompanyId && p.periodo === payment.periodo,
-    )
-
-    if (existingIndex >= 0) {
-      // Update existing payment
-      setAllSipePayments((prev) =>
-        prev.map((p, i) => (i === existingIndex ? { ...p, ...payment, companiaId: currentCompanyId } : p)),
-      )
+    if (currentCompanyId) {
+      fetchCompanyData(currentCompanyId)
+      localStorage.setItem(localStorageKey, currentCompanyId)
     } else {
-      // Add new payment
-      const newPayment = { ...payment, companiaId: currentCompanyId }
-      setAllSipePayments((prev) => [...prev, newPayment])
+      // Limpiar estados si no hay compañía
+      setEmployees([])
+      setLegalParameters([])
+      setISRBrackets([])
+      setPayrollEntries([])
+      setDecimoEntries([])
+      setSIPEPayments([])
+      localStorage.removeItem(localStorageKey)
     }
+  }, [currentCompanyId, fetchCompanyData])
+
+  // 3. Revalidación de Planillas y Décimo al cambiar filtros
+  useEffect(() => {
+    if (currentCompanyId) {
+        // Revalidar planillas por mes
+        apiFetcher<PayrollEntry[]>(`/api/payroll-entries`, { params: { companiaId: currentCompanyId, periodo: currentPeriod.slice(0, 7) } })
+            .then(setPayrollEntries)
+            .catch(console.error);
+
+        // Revalidar décimo por año
+        apiFetcher<DecimoTercerMes[]>(`/api/decimo-entries`, { params: { companiaId: currentCompanyId, anio: currentYear } })
+            .then(setDecimoEntries)
+            .catch(console.error);
+    }
+  }, [currentCompanyId, currentPeriod, currentYear])
+
+  // =================================================================
+  // 3. ACTION HANDLERS (CRUD API calls)
+  // =================================================================
+  
+  const selectCompany = (companyId: string | null) => setCurrentCompanyId(companyId)
+  const selectPeriod = (period: string) => setCurrentPeriod(period)
+  const selectYear = (year: number) => setCurrentYear(year)
+  
+  // --- Companies CRUD ---
+  const addCompany = useCallback(async (data: Omit<Company, 'id'>) => {
+    try {
+      const newCompany = await apiFetcher<Company>("/api/companies", { method: "POST", data })
+      await fetchAllCompanies()
+      toast({ title: "Compañía Agregada", description: `La compañía ${newCompany.nombre} ha sido agregada.`, variant: "success" })
+      return newCompany
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo agregar la compañía.", variant: "destructive" })
+      throw e
+    }
+  }, [fetchAllCompanies])
+
+  const updateCompany = useCallback(async (id: string, data: Partial<Company>) => {
+    try {
+      const updatedCompany = await apiFetcher<Company>(`/api/companies/${id}`, { method: "PATCH", data })
+      await fetchAllCompanies()
+      toast({ title: "Compañía Actualizada", description: `La compañía ${updatedCompany.nombre} ha sido actualizada.`, variant: "success" })
+      return updatedCompany
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo actualizar la compañía.", variant: "destructive" })
+      throw e
+    }
+  }, [fetchAllCompanies])
+  
+  const deleteCompany = useCallback(async (id: string) => {
+    try {
+      await apiFetcher<void>(`/api/companies/${id}`, { method: "DELETE" })
+      if (currentCompanyId === id) {
+          setCurrentCompanyId(null)
+      }
+      await fetchAllCompanies()
+      toast({ title: "Compañía Eliminada", description: "La compañía ha sido eliminada.", variant: "success" })
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo eliminar la compañía.", variant: "destructive" })
+      throw e
+    }
+  }, [fetchAllCompanies, currentCompanyId])
+  
+  // --- Employees CRUD ---
+  const addEmployee = useCallback(async (data: Omit<Employee, 'id'>) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      const newEmployee = await apiFetcher<Employee>("/api/employees", { method: "POST", data: { ...data, companiaId } })
+      await fetchCompanyData(companiaId) // Revalidar empleados
+      toast({ title: "Empleado Agregado", description: `${newEmployee.nombre} ${newEmployee.apellido} ha sido agregado.`, variant: "success" })
+      return newEmployee
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo agregar el empleado.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+
+  const updateEmployee = useCallback(async (id: string, data: Partial<Employee>) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      const updatedEmployee = await apiFetcher<Employee>(`/api/employees/${id}`, { method: "PATCH", data })
+      await fetchCompanyData(companiaId) // Revalidar empleados
+      toast({ title: "Empleado Actualizado", description: `${updatedEmployee.nombre} ${updatedEmployee.apellido} ha sido actualizado.`, variant: "success" })
+      return updatedEmployee
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo actualizar el empleado.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+
+  const deleteEmployee = useCallback(async (id: string) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      await apiFetcher<void>(`/api/employees/${id}`, { method: "DELETE" })
+      await fetchCompanyData(companiaId) // Revalidar empleados
+      toast({ title: "Empleado Eliminado", description: "El empleado ha sido eliminado.", variant: "success" })
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo eliminar el empleado.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+  
+  const clearAllEmployees = useCallback(async () => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      await apiFetcher<void>(`/api/employees`, { method: "DELETE", params: { companiaId } })
+      await fetchCompanyData(companiaId) // Revalidar empleados
+      toast({ title: "Empleados Eliminados", description: "Todos los empleados han sido eliminados.", variant: "success" })
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudieron eliminar los empleados.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+
+  // --- Legal Parameters CRUD ---
+  const addLegalParameter = useCallback(async (data: Omit<LegalParameters, 'id'>) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      const newParam = await apiFetcher<LegalParameters>("/api/legal-parameters", { method: "POST", data: { ...data, companiaId } })
+      await fetchCompanyData(companiaId) // Revalidar
+      toast({ title: "Parámetro Agregado", description: `${newParam.nombre} agregado.`, variant: "success" })
+      return newParam
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo agregar el parámetro.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+  
+  const updateLegalParameter = useCallback(async (id: string, data: Partial<LegalParameters>) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      const updatedParam = await apiFetcher<LegalParameters>(`/api/legal-parameters/${id}`, { method: "PATCH", data })
+      await fetchCompanyData(companiaId) // Revalidar
+      toast({ title: "Parámetro Actualizado", description: `${updatedParam.nombre} actualizado.`, variant: "success" })
+      return updatedParam
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo actualizar el parámetro.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+
+  const deleteLegalParameter = useCallback(async (id: string) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      await apiFetcher<void>(`/api/legal-parameters/${id}`, { method: "DELETE" })
+      await fetchCompanyData(companiaId) // Revalidar
+      toast({ title: "Parámetro Eliminado", description: "El parámetro legal ha sido eliminado.", variant: "success" })
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo eliminar el parámetro.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+  
+  // --- ISR Brackets CRUD ---
+  const updateISRBrackets = useCallback(async (brackets: Omit<ISRBracket, 'id'>[]) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      await apiFetcher<void>("/api/isr-brackets", { method: "POST", data: { companiaId, brackets } })
+      await fetchCompanyData(companiaId) // Revalidar
+      toast({ title: "Tramos ISR Actualizados", description: "La tabla de ISR ha sido actualizada correctamente.", variant: "success" })
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo actualizar la tabla de ISR.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+  
+  // --- Payroll Entries CRUD ---
+  const savePayrollEntries = useCallback(async (entries: PayrollEntry[]) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      const savedEntries = await apiFetcher<PayrollEntry[]>("/api/payroll-entries", { method: "POST", data: entries.map(e => ({...e, companiaId})) })
+      await fetchCompanyData(companiaId) // Revalidar Planillas y otros datos
+      toast({ title: "Planilla Guardada", description: `Se guardaron ${savedEntries.length} entradas de planilla.`, variant: "success" })
+      return savedEntries
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo guardar la planilla.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+
+  const deletePayrollEntry = useCallback(async (id: string) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      await apiFetcher<void>(`/api/payroll-entries/${id}`, { method: "DELETE" })
+      await fetchCompanyData(companiaId) // Revalidar
+      toast({ title: "Entrada Eliminada", description: "La entrada de planilla ha sido eliminada.", variant: "success" })
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo eliminar la entrada de planilla.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+  
+  const deletePeriodPayroll = useCallback(async (period: string) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      await apiFetcher<void>(`/api/payroll-entries`, { method: "DELETE", params: { companiaId, periodo: period } })
+      await fetchCompanyData(companiaId) // Revalidar
+      toast({ title: "Planilla Eliminada", description: `Todas las entradas del período ${period} han sido eliminadas.`, variant: "success" })
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo eliminar la planilla del período.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+
+  // --- Décimo Entries CRUD ---
+  const saveDecimoEntries = useCallback(async (entries: DecimoTercerMes[]) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      const savedEntries = await apiFetcher<DecimoTercerMes[]>("/api/decimo-entries", { method: "POST", data: entries.map(e => ({...e, companiaId})) })
+      await fetchCompanyData(companiaId) // Revalidar
+      toast({ title: "Décimo Guardado", description: `Se guardaron ${savedEntries.length} cálculos de décimo.`, variant: "success" })
+      return savedEntries
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo guardar el cálculo de décimo.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+
+  const deleteDecimoEntry = useCallback(async (id: string) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      await apiFetcher<void>(`/api/decimo-entries/${id}`, { method: "DELETE" })
+      await fetchCompanyData(companiaId) // Revalidar
+      toast({ title: "Cálculo Eliminado", description: "El cálculo de décimo ha sido eliminado.", variant: "success" })
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo eliminar el cálculo de décimo.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+
+  const deleteYearDecimo = useCallback(async (year: number) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      await apiFetcher<void>(`/api/decimo-entries`, { method: "DELETE", params: { companiaId, anio: year } })
+      await fetchCompanyData(companiaId) // Revalidar
+      toast({ title: "Décimo Eliminado", description: `Todos los cálculos del año ${year} han sido eliminados.`, variant: "success" })
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo eliminar el décimo del año.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+
+  // --- SIPE Payments CRUD ---
+  const saveSIPEPayment = useCallback(async (data: Omit<SIPEPayment, 'id'>) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      const newPayment = await apiFetcher<SIPEPayment>("/api/sipe-payments", { method: "POST", data: { ...data, companiaId } })
+      await fetchCompanyData(companiaId) // Revalidar
+      toast({ title: "Pago SIPE Guardado", description: `El pago SIPE del período ${newPayment.periodo} ha sido guardado.`, variant: "success" })
+      return newPayment
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo guardar el pago SIPE.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+  
+  const deleteSIPEPayment = useCallback(async (id: string) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      await apiFetcher<void>(`/api/sipe-payments/${id}`, { method: "DELETE" })
+      await fetchCompanyData(companiaId) // Revalidar
+      toast({ title: "Pago SIPE Eliminado", description: "El pago SIPE ha sido eliminado.", variant: "success" })
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "No se pudo eliminar el pago SIPE.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId, fetchCompanyData])
+
+  // =================================================================
+  // 4. CALCULATION HANDLERS (API calls to business logic)
+  // =================================================================
+  
+  // NOTE: This now calls the dedicated API route /api/calculations/payroll
+  const calculatePayrollApi = useCallback(async (input: Omit<PayrollCalculationInput, 'legalParameters' | 'isrBrackets'> & { currentLegalParameters: LegalParameters[], currentISRBrackets: ISRBracket[] }) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    
+    // Preparar el input completo para la API
+    const apiInput: PayrollCalculationInput = {
+        ...input,
+        legalParameters: input.currentLegalParameters,
+        isrBrackets: input.currentISRBrackets,
+    }
+    
+    try {
+      const result = await apiFetcher<PayrollCalculationResult>("/api/calculations/payroll", { method: "POST", data: apiInput })
+      return result
+    } catch (e: any) {
+      toast({ title: "Error de Cálculo", description: e.message || "No se pudo calcular la planilla.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId])
+  
+  // NOTE: This now calls the dedicated API route /api/calculations/decimo
+  const calculateDecimoApi = useCallback(async (employeeId: string, anio: number) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      const result = await apiFetcher<DecimoTercerMes>("/api/calculations/decimo", { 
+          method: "POST", 
+          data: { empleadoId, companiaId, anio } 
+      })
+      return result
+    } catch (e: any) {
+      toast({ title: "Error de Cálculo", description: e.message || "No se pudo calcular el décimo.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId])
+  
+  // NOTE: This now calls the dedicated API route /api/calculations/sipe
+  const calculateSIPEApi = useCallback(async (periodo: string) => {
+    const companiaId = getCompanyId()
+    if (!companiaId) throw new Error("No company selected.")
+    try {
+      const result = await apiFetcher<SIPEPayment>("/api/calculations/sipe", { 
+          method: "POST", 
+          data: { companiaId, periodo } 
+      })
+      return result
+    } catch (e: any) {
+      toast({ title: "Error de Cálculo", description: e.message || "No se pudo calcular el pago SIPE.", variant: "destructive" })
+      throw e
+    }
+  }, [getCompanyId])
+  
+  // =================================================================
+  // 5. CONTEXT VALUE
+  // =================================================================
+
+  const value = {
+    // States
+    companies,
+    currentCompany,
+    employees,
+    legalParameters,
+    isrBrackets,
+    payrollEntries,
+    decimoEntries,
+    sipePayments,
+    isLoading,
+    currentPeriod,
+    currentYear,
+
+    // Filters
+    selectCompany,
+    selectPeriod,
+    selectYear,
+
+    // CRUD
+    addCompany,
+    updateCompany,
+    deleteCompany,
+    addEmployee,
+    updateEmployee,
+    deleteEmployee,
+    clearAllEmployees,
+    addLegalParameter,
+    updateLegalParameter,
+    deleteLegalParameter,
+    updateISRBrackets,
+    savePayrollEntries,
+    deletePayrollEntry,
+    deletePeriodPayroll,
+    saveDecimoEntries,
+    deleteDecimoEntry,
+    deleteYearDecimo,
+    saveSIPEPayment,
+    deleteSIPEPayment,
+
+    // Calculations
+    calculatePayrollApi,
+    calculateDecimoApi,
+    calculateSIPEApi,
   }
 
-  const updateSIPEPaymentStatus = (
-    periodo: string,
-    estado: "pendiente" | "pagado",
-    fechaPago?: string,
-    referenciaPago?: string,
-  ) => {
-    if (!currentCompanyId) return
-
-    setAllSipePayments((prev) =>
-      prev.map((p) =>
-        p.companiaId === currentCompanyId && p.periodo === periodo ? { ...p, estado, fechaPago, referenciaPago } : p,
-      ),
-    )
-  }
-
-  return (
-    <PayrollContext.Provider
-      value={{
-        companies,
-        currentCompanyId,
-        currentUser,
-        setCurrentCompanyId,
-        addCompany,
-        updateCompany,
-        employees,
-        legalParameters,
-        isrBrackets,
-        payrollEntries,
-        decimoTercerMes,
-        sipePayments,
-        addEmployee,
-        updateEmployee,
-        deleteEmployee,
-        clearAllEmployees,
-        addLegalParameter,
-        updateLegalParameter,
-        addPayrollEntry,
-        updatePayrollEntry,
-        addDecimoTercerMes,
-        updateISRBrackets,
-        addOrUpdateSIPEPayment,
-        updateSIPEPaymentStatus,
-        isHydrated,
-      }}
-    >
-      {children}
-    </PayrollContext.Provider>
-  )
+  return <PayrollContext.Provider value={value}>{children}</PayrollContext.Provider>
 }
 
-export function usePayroll() {
+// =================================================================
+// 6. HOOK
+// =================================================================
+
+export const usePayroll = () => {
   const context = useContext(PayrollContext)
   if (context === undefined) {
     throw new Error("usePayroll must be used within a PayrollProvider")

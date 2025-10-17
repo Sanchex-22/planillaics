@@ -1,215 +1,205 @@
+// File: app/empleados/page.tsx
+
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { usePayroll } from "@/lib/payroll-context"
-import { SidebarNav } from "@/components/sidebar-nav"
+import { PlusCircle, Trash2, Edit, FileInput } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { format } from "date-fns"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Search, Pencil, Trash2, Upload } from "lucide-react"
-import { EmployeeDialog } from "@/components/employee-dialog"
-import { ExcelImportDialog } from "@/components/excel-import-dialog"
-import type { Employee } from "@/lib/types"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+import { Employee } from "@/lib/types"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
+import { Separator } from "@/components/ui/separator"
+import { formatCurrency } from "@/lib/utils"
+// FIX IMPORT 1: Usar Named Imports
+import { EmployeeDialog } from "@/components/employee-dialog" 
+// FIX IMPORT 2: Usar Named Imports (asumo que ExcelImportDialog también es un named export)
+import { ExcelImportDialog } from "@/components/excel-import-dialog" 
+import { toast } from "@/components/ui/use-toast"
+
 
 export default function EmpleadosPage() {
-  const { employees, deleteEmployee, clearAllEmployees } = usePayroll()
-  const [searchTerm, setSearchTerm] = useState("")
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [excelDialogOpen, setExcelDialogOpen] = useState(false)
-  const [editingEmployee, setEditingEmployee] = useState<Employee | undefined>()
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [employeeToDelete, setEmployeeToDelete] = useState<string | null>(null)
-  const [clearAllDialogOpen, setClearAllDialogOpen] = useState(false)
+  const { employees, currentCompany, deleteEmployee, clearAllEmployees, isLoading } = usePayroll()
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null)
 
-  const filteredEmployees = employees.filter(
-    (emp) =>
-      emp.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      emp.apellido.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      emp.cedula.includes(searchTerm) ||
-      emp.departamento.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  const activeEmployees = useMemo(() => employees.filter(e => e.estado === 'activo'), [employees])
+  const inactiveEmployees = useMemo(() => employees.filter(e => e.estado === 'inactivo'), [employees])
 
   const handleEdit = (employee: Employee) => {
     setEditingEmployee(employee)
-    setDialogOpen(true)
+    setIsDialogOpen(true)
   }
 
-  const handleDelete = (id: string) => {
-    setEmployeeToDelete(id)
-    setDeleteDialogOpen(true)
-  }
-
-  const confirmDelete = () => {
-    if (employeeToDelete) {
-      deleteEmployee(employeeToDelete)
-      setEmployeeToDelete(null)
+  const handleDelete = async (id: string) => {
+    try {
+      // FIX ASÍNCRONO: Usar await
+      await deleteEmployee(id) 
+    } catch (e) {
+      console.error("Failed to delete employee:", e)
     }
-    setDeleteDialogOpen(false)
   }
 
-  const confirmClearAll = () => {
-    clearAllEmployees()
-    setClearAllDialogOpen(false)
+  const handleClearAll = async () => {
+    if (!currentCompany) return
+    try {
+      // FIX ASÍNCRONO: Usar await
+      await clearAllEmployees()
+    } catch (e) {
+      console.error("Failed to clear all employees:", e)
+    }
   }
 
-  const handleDialogClose = () => {
-    setDialogOpen(false)
-    setEditingEmployee(undefined)
+  if (isLoading) {
+    return <div className="p-8"><div className="text-center py-20">Cargando datos de empleados...</div></div>
   }
+
+  if (!currentCompany) {
+    return <div className="p-8"><div className="text-center py-20 text-muted-foreground">Por favor, seleccione una compañía para gestionar los empleados.</div></div>
+  }
+
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <aside className="w-64 border-r border-border bg-card">
-        <SidebarNav />
-      </aside>
-      <main className="flex-1 p-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">Gestión de Empleados</h1>
-          <p className="text-muted-foreground">Administre la información de todos los empleados</p>
+    <div className="p-8">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Gestión de Empleados</h1>
+        <div className="space-x-2">
+            <Button onClick={() => setIsImportDialogOpen(true)} variant="outline">
+                <FileInput className="mr-2 h-4 w-4" />
+                Importar Excel
+            </Button>
+            <Button onClick={() => { setEditingEmployee(null); setIsDialogOpen(true) }}>
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Nuevo Empleado
+            </Button>
         </div>
+      </div>
+      <Separator className="mb-6" />
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Lista de Empleados</CardTitle>
-                <CardDescription>Total de empleados: {employees.length}</CardDescription>
-              </div>
-              <div className="flex gap-2">
-                {employees.length > 0 && (
-                  <Button variant="destructive" onClick={() => setClearAllDialogOpen(true)}>
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Borrar Todos
-                  </Button>
-                )}
-                <Button variant="outline" onClick={() => setExcelDialogOpen(true)}>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Importar Excel
-                </Button>
-                <Button onClick={() => setDialogOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Agregar Empleado
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar por nombre, cédula o departamento..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </div>
+      <EmployeeDialog 
+        isOpen={isDialogOpen} 
+        setIsOpen={setIsDialogOpen} 
+        employeeToEdit={editingEmployee} 
+        setEmployeeToEdit={setEditingEmployee}
+      />
+      
+      <ExcelImportDialog 
+        isOpen={isImportDialogOpen} 
+        setIsOpen={setIsImportDialogOpen}
+      />
 
-            <div className="rounded-md border border-border">
+      <Card>
+        <CardHeader>
+          <CardTitle>Listado de Empleados ({employees.length})</CardTitle>
+          <CardDescription>
+            Empleados activos: {activeEmployees.length} | Inactivos: {inactiveEmployees.length}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {employees.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground">
+              No hay empleados registrados. ¡Agrega uno para comenzar!
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Cédula</TableHead>
                     <TableHead>Nombre Completo</TableHead>
-                    <TableHead>Departamento</TableHead>
-                    <TableHead>Cargo</TableHead>
-                    <TableHead className="text-right">Salario Base</TableHead>
+                    <TableHead>Cargo/Depto</TableHead>
+                    <TableHead>Salario Base</TableHead>
+                    <TableHead>Fecha Ingreso</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredEmployees.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground">
-                        No se encontraron empleados
+                  {employees.map((employee) => (
+                    <TableRow key={employee.id}>
+                      <TableCell className="font-medium">{employee.cedula}</TableCell>
+                      <TableCell>{employee.nombre} {employee.apellido}</TableCell>
+                      <TableCell>{employee.cargo} ({employee.departamento})</TableCell>
+                      <TableCell>{formatCurrency(employee.salarioBase)}</TableCell>
+                      <TableCell>{format(new Date(employee.fechaIngreso), 'dd/MM/yyyy')}</TableCell>
+                      <TableCell>
+                        <Badge variant={employee.estado === 'activo' ? "default" : "secondary"}>
+                          {employee.estado === 'activo' ? "Activo" : "Inactivo"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right space-x-2">
+                        <Button variant="outline" size="sm" onClick={() => handleEdit(employee)}>
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="destructive" size="sm">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>¿Eliminar a {employee.nombre}?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Esta acción eliminará al empleado y todos sus registros de planilla, décimo, etc. ¿Desea continuar?
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction 
+                                className="bg-red-600 hover:bg-red-700" 
+                                onClick={() => handleDelete(employee.id)}
+                              >
+                                Confirmar Eliminación
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </TableCell>
                     </TableRow>
-                  ) : (
-                    filteredEmployees.map((employee) => (
-                      <TableRow key={employee.id}>
-                        <TableCell className="font-mono">{employee.cedula}</TableCell>
-                        <TableCell className="font-medium">
-                          {employee.nombre} {employee.apellido}
-                        </TableCell>
-                        <TableCell>{employee.departamento}</TableCell>
-                        <TableCell>{employee.cargo}</TableCell>
-                        <TableCell className="text-right font-mono">
-                          ${employee.salarioBase.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={employee.estado === "activo" ? "default" : "secondary"}>
-                            {employee.estado}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button variant="ghost" size="icon" onClick={() => handleEdit(employee)}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleDelete(employee.id)}>
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
+                  ))}
                 </TableBody>
               </Table>
             </div>
-          </CardContent>
-        </Card>
+          )}
+        </CardContent>
+      </Card>
+      
+      {/* Botón de Eliminación Masiva */}
+      {employees.length > 0 && (
+        <div className="mt-6 flex justify-end">
+            <AlertDialog>
+                <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="sm">
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Eliminar TODOS los Empleados
+                    </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>ADVERTENCIA: ¿Eliminar TODOS los Empleados?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Esta acción NO se puede deshacer. Se eliminarán permanentemente **TODOS** los {employees.length} empleados y sus datos históricos de la compañía {currentCompany.nombre}.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction 
+                        className="bg-red-600 hover:bg-red-700" 
+                        onClick={handleClearAll}
+                      >
+                        CONFIRMAR Eliminación Masiva
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </div>
+      )}
 
-        <EmployeeDialog open={dialogOpen} onOpenChange={handleDialogClose} employee={editingEmployee} />
-        <ExcelImportDialog open={excelDialogOpen} onOpenChange={setExcelDialogOpen} />
-
-        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>¿Está seguro?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Esta acción no se puede deshacer. El empleado será eliminado permanentemente del sistema.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmDelete}>Eliminar</AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        <AlertDialog open={clearAllDialogOpen} onOpenChange={setClearAllDialogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>¿Borrar TODOS los empleados?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Esta acción no se puede deshacer. Se eliminarán permanentemente TODOS los empleados ({employees.length}
-                ), sus planillas, cálculos de décimo y pagos SIPE de esta empresa. ¿Está completamente seguro?
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmClearAll} className="bg-destructive text-destructive-foreground">
-                Sí, Borrar Todo
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </main>
     </div>
   )
 }

@@ -1,673 +1,306 @@
+// File: app/decimo-tercer-mes/page.tsx
+
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { usePayroll } from "@/lib/payroll-context"
-import { SidebarNav } from "@/components/sidebar-nav"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Calculator, Save, DollarSign, Eye, Calendar, AlertCircle, Download, FileText } from "lucide-react"
-import { calculateDecimoTercerMesWithDeductions } from "@/lib/payroll-calculations"
-import type { Employee } from "@/lib/types"
-import { useToast } from "@/hooks/use-toast"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { formatCurrency } from "@/lib/utils"
+import { DecimoTercerMes } from "@/lib/types"
+import { Button } from "@/components/ui/button"
+import { Check, Loader2, Save, Trash2 } from "lucide-react"
+import { format } from "date-fns"
+// FIX IMPORT: Usar Named Imports
+import { MonthSelector } from "@/components/month-selector"
+import { Badge } from "@/components/ui/badge"
+import { Spinner } from "@/components/ui/spinner"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
+import { toast } from "@/components/ui/use-toast"
 import { Separator } from "@/components/ui/separator"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { generateDecimoPDF, generateDecimoPaymentVoucher } from "@/lib/decimo-pdf-generator"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+
+
+// Interfaz para el cálculo temporal (puede ser DecimoTercerMes, pero le añadimos el nombre del empleado)
+interface CalculatedDecimo extends DecimoTercerMes {
+  employeeName: string
+}
 
 export default function DecimoTercerMesPage() {
-  const { employees, payrollEntries, decimoTercerMes, addDecimoTercerMes, legalParameters, isrBrackets } = usePayroll()
-  const { toast } = useToast()
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
-  const [calculatedDecimo, setCalculatedDecimo] = useState<
-    Array<{
-      employee: Employee
-      calculation: ReturnType<typeof calculateDecimoTercerMesWithDeductions>
-    }>
-  >([])
-  const [selectedEmployee, setSelectedEmployee] = useState<{
-    employee: Employee
-    calculation: ReturnType<typeof calculateDecimoTercerMesWithDeductions>
-  } | null>(null)
+  const {
+    currentCompany,
+    employees,
+    payrollEntries,
+    legalParameters,
+    isrBrackets,
+    decimoEntries,
+    saveDecimoEntries,
+    deleteYearDecimo,
+    currentYear,
+    selectYear,
+    calculateDecimoApi, // Nueva función de cálculo de API
+    isLoading
+  } = usePayroll()
 
+  const [calculatedDecimos, setCalculatedDecimos] = useState<CalculatedDecimo[]>([])
+  const [isCalculating, setIsCalculating] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+
+  const entriesForCurrentYear = useMemo(() => decimoEntries.filter(e => e.anio === currentYear), [decimoEntries, currentYear])
+  const isYearClosed = entriesForCurrentYear.length > 0 && entriesForCurrentYear.every(e => e.estado === 'pagado_completo')
+
+  // Efecto para sincronizar los cálculos con las entradas existentes
   useEffect(() => {
-    console.log("[v0] Décimo Tercer Mes - Employees:", employees.length)
-    console.log("[v0] Décimo Tercer Mes - Payroll Entries:", payrollEntries.length)
-    console.log("[v0] Décimo Tercer Mes - Active Employees:", employees.filter((e) => e.estado === "activo").length)
-  }, [employees, payrollEntries])
+    if (entriesForCurrentYear.length > 0) {
+      const syncedData: CalculatedDecimo[] = entriesForCurrentYear.map(e => ({
+        ...e,
+        employeeName: employees.find(emp => emp.id === e.empleadoId)?.nombre || 'Empleado Desconocido'
+      })).filter(e => e.employeeName !== 'Empleado Desconocido')
+      setCalculatedDecimos(syncedData)
+    } else {
+      setCalculatedDecimos([])
+    }
+  }, [entriesForCurrentYear, employees])
 
-  const activeEmployees = employees.filter((e) => e.estado === "activo")
-  const yearDecimo = decimoTercerMes.filter((d) => d.anio === selectedYear)
-
-  const handleCalculate = () => {
-    console.log("[v0] Calculating décimo tercer mes for year:", selectedYear)
-    console.log("[v0] Active employees:", activeEmployees.length)
-
-    if (activeEmployees.length === 0) {
-      toast({
-        title: "No hay empleados activos",
-        description: "Debe agregar empleados activos antes de calcular el décimo tercer mes",
-        variant: "destructive",
-      })
+  const handleCalculateDecimo = async () => {
+    if (!currentCompany || employees.length === 0) {
+      toast({ title: "Advertencia", description: "No hay empleados o compañía seleccionada.", variant: "warning" })
       return
     }
 
-    const results = activeEmployees.map((employee) => {
-      const calculation = calculateDecimoTercerMesWithDeductions(
-        employee,
-        payrollEntries,
-        selectedYear,
-        legalParameters,
-        isrBrackets,
-      )
-      return { employee, calculation }
-    })
+    setIsCalculating(true)
+    const newCalculations: CalculatedDecimo[] = []
 
-    setCalculatedDecimo(results)
-    toast({
-      title: "Décimo Tercer Mes calculado",
-      description: `Se ha calculado el décimo tercer mes para ${results.length} empleados en tres pagos`,
-    })
-  }
+    try {
+      for (const employee of employees.filter(e => e.estado === 'activo')) {
+        // FIX ASÍNCRONO: Usar await para la llamada a la API de cálculo
+        const result = await calculateDecimoApi(employee.id, currentYear) 
 
-  const handleSaveDecimo = () => {
-    if (calculatedDecimo.length === 0) {
-      toast({
-        title: "Error",
-        description: "Primero debe calcular el décimo tercer mes",
-        variant: "destructive",
-      })
-      return
-    }
-
-    calculatedDecimo.forEach(({ employee, calculation }) => {
-      const existingDecimo = yearDecimo.find((d) => d.empleadoId === employee.id)
-
-      if (!existingDecimo) {
-        addDecimoTercerMes({
+        const decimoEntry: CalculatedDecimo = {
+          ...result,
+          employeeName: `${employee.nombre} ${employee.apellido}`,
+          companiaId: currentCompany.id,
           empleadoId: employee.id,
-          anio: selectedYear,
-          salarioPromedio: calculation.salarioPromedio,
-          mesesTrabajados: calculation.mesesTrabajados,
-          montoTotal: calculation.montoTotal,
-          css: calculation.css,
-          cssPatrono: calculation.cssPatrono,
-          isr: calculation.isr,
-          totalDeducciones: calculation.totalDeducciones,
-          totalAportesPatronales: calculation.totalAportesPatronales,
-          montoNeto: calculation.montoNeto,
-          pagoAbril: calculation.pagoAbril,
-          pagoAgosto: calculation.pagoAgosto,
-          pagoDiciembre: calculation.pagoDiciembre,
+          anio: currentYear,
           fechaCalculo: new Date().toISOString(),
-          estado: "calculado",
-        })
+          estado: 'calculado', // Estado inicial
+        }
+        newCalculations.push(decimoEntry)
       }
-    })
 
-    toast({
-      title: "Décimo Tercer Mes guardado",
-      description: "Los cálculos han sido guardados exitosamente",
-    })
-    setCalculatedDecimo([])
-  }
+      setCalculatedDecimos(newCalculations)
+      toast({ title: "Cálculo Completo", description: `Se calcularon ${newCalculations.length} décimos para el año ${currentYear}.`, variant: "success" })
 
-  const handleDownloadAllPDFs = () => {
-    if (calculatedDecimo.length === 0) {
-      toast({
-        title: "Error",
-        description: "Primero debe calcular el décimo tercer mes",
-        variant: "destructive",
-      })
-      return
+    } catch (e) {
+      console.error("Error calculating décimo:", e)
+      toast({ title: "Error", description: "Fallo el cálculo del Décimo Tercer Mes. Verifique la consola.", variant: "destructive" })
+    } finally {
+      setIsCalculating(false)
     }
-
-    calculatedDecimo.forEach(({ employee, calculation }) => {
-      generateDecimoPDF(employee, calculation, selectedYear)
-    })
-
-    toast({
-      title: "PDFs generados",
-      description: `Se han generado ${calculatedDecimo.length} comprobantes`,
-    })
   }
 
-  const totalDecimo = calculatedDecimo.reduce((sum, item) => sum + item.calculation.montoNeto, 0)
+  const handleSaveDecimo = async (estado: 'pagado_parcial' | 'pagado_completo') => {
+    if (calculatedDecimos.length === 0 || !currentCompany) return
 
+    setIsSaving(true)
+    try {
+      const entriesToSave: DecimoTercerMes[] = calculatedDecimos.map((calc) => ({
+        ...calc,
+        estado: estado,
+        id: entriesForCurrentYear.find(e => e.empleadoId === calc.empleadoId)?.id || `temp-${calc.empleadoId}`,
+        // El resto de campos ya están correctamente tipados.
+      }))
+
+      // FIX ASÍNCRONO: Usar await para la persistencia
+      await saveDecimoEntries(entriesToSave)
+      
+      toast({ title: "Guardado Exitoso", description: `El Décimo se guardó como ${estado}.`, variant: "success" })
+    } catch (e) {
+      console.error("Error saving décimo:", e)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleClearDecimo = async () => {
+    if (entriesForCurrentYear.length === 0) return
+    try {
+      // FIX ASÍNCRONO: Usar await para la eliminación
+      await deleteYearDecimo(currentYear)
+      setCalculatedDecimos([])
+    } catch (e) {
+      console.error("Error clearing décimo:", e)
+    }
+  }
+  
+  if (!currentCompany) {
+    return <div className="p-8"><div className="text-center py-20 text-muted-foreground">Por favor, seleccione una compañía para calcular el Décimo Tercer Mes.</div></div>
+  }
+  
   return (
-    <div className="flex min-h-screen bg-background">
-      <aside className="w-64 border-r border-border bg-card">
-        <SidebarNav />
-      </aside>
-      <main className="flex-1 p-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">Décimo Tercer Mes</h1>
-          <p className="text-muted-foreground">
-            Calcule el décimo tercer mes pagadero en tres partes: Abril, Agosto y Diciembre
-          </p>
-        </div>
-
-        {activeEmployees.length === 0 && (
-          <Alert className="mb-6">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>No hay empleados activos</AlertTitle>
-            <AlertDescription>
-              Debe agregar empleados activos en la sección de Empleados antes de calcular el décimo tercer mes.
-            </AlertDescription>
-          </Alert>
-        )}
-
-        <div className="grid gap-6 md:grid-cols-3 mb-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Empleados Activos</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{activeEmployees.length}</div>
-              <p className="text-xs text-muted-foreground">Total de empleados</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Monto Total</CardTitle>
-              <Calculator className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                ${totalDecimo.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-              </div>
-              <p className="text-xs text-muted-foreground">Sin deducciones</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Por Pago</CardTitle>
-              <Save className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-primary">
-                ${(totalDecimo / 3).toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-              </div>
-              <p className="text-xs text-muted-foreground">Cada cuota</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card className="mb-6">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Configuración del Año</CardTitle>
-                <CardDescription>Seleccione el año para calcular el décimo tercer mes</CardDescription>
-              </div>
-              <div className="flex gap-2">
-                <Button onClick={handleCalculate} className="gap-2">
-                  <Calculator className="h-4 w-4" />
-                  Calcular Décimo Tercer Mes
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-end gap-4">
-              <div className="flex-1 space-y-2">
-                <Label htmlFor="year">Año</Label>
-                <Input
-                  id="year"
-                  type="number"
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(Number.parseInt(e.target.value))}
-                  min="2000"
-                  max="2100"
+    <div className="p-8">
+      <h1 className="text-3xl font-bold mb-6">Cálculo de Décimo Tercer Mes</h1>
+      <Card className="mb-6">
+        <CardContent className="pt-6 space-y-4">
+          <div className="flex flex-col md:flex-row gap-4 items-start md:items-end">
+            
+            {/* Selector de Año */}
+            <div className="flex flex-col space-y-1">
+                <label className="text-sm font-medium">Año de Cálculo</label>
+                <MonthSelector 
+                    selectedMonth={`${currentYear}-01`} 
+                    onMonthChange={(month) => selectYear(parseInt(month.slice(0, 4)))} 
+                    mode="year"
                 />
-              </div>
             </div>
-          </CardContent>
-        </Card>
+            
+            <Button 
+                onClick={handleCalculateDecimo} 
+                disabled={isCalculating || !currentCompany || employees.length === 0 || isYearClosed}
+                className="ml-auto min-w-[150px]"
+            >
+                {isCalculating ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                    <Check className="mr-2 h-4 w-4" />
+                )}
+                {isCalculating ? "Calculando..." : "Calcular Décimo"}
+            </Button>
+            
+          </div>
 
-        {calculatedDecimo.length > 0 && (
-          <Card className="mb-6">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Resumen del Cálculo</CardTitle>
-                  <CardDescription>Décimo tercer mes calculado para el año {selectedYear}</CardDescription>
-                </div>
-                <div className="flex gap-2">
-                  <Button onClick={handleDownloadAllPDFs} variant="outline" className="gap-2 bg-transparent">
-                    <Download className="h-4 w-4" />
-                    Descargar Todos
-                  </Button>
-                  <Button onClick={handleSaveDecimo} className="gap-2">
-                    <Save className="h-4 w-4" />
-                    Guardar Cálculos
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-lg bg-primary/10 p-6 text-center mb-6">
-                <p className="text-sm text-muted-foreground mb-2">Monto Total a Pagar</p>
-                <p className="text-4xl font-bold text-primary">
-                  ${totalDecimo.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">Sin deducciones según ley panameña</p>
-              </div>
+          <p className="text-sm text-muted-foreground pt-2">
+            Año de cálculo: <Badge variant="secondary" className="font-mono">{currentYear}</Badge>
+            {entriesForCurrentYear.length > 0 && (
+                <span className="ml-4">
+                    Estado: <Badge variant={isYearClosed ? "success" : "default"}>{isYearClosed ? "Pagado Completo" : "Cálculo Existente"}</Badge>
+                </span>
+            )}
+          </p>
+          
+        </CardContent>
+      </Card>
+      
+      {/* Botones de Guardado */}
+      {calculatedDecimos.length > 0 && (
+        <div className="flex justify-end space-x-4 mt-6">
+          <Button 
+            onClick={() => handleSaveDecimo('pagado_parcial')}
+            variant="outline"
+            disabled={isSaving || isYearClosed}
+          >
+            {isSaving ? <Spinner className="w-4 h-4 mr-2" /> : <Save className="mr-2 h-4 w-4" />}
+            Guardar como Pago Parcial
+          </Button>
+          
+          <Button 
+            onClick={() => handleSaveDecimo('pagado_completo')}
+            variant="default"
+            disabled={isSaving || isYearClosed}
+          >
+            {isSaving ? <Spinner className="w-4 h-4 mr-2" /> : <Check className="mr-2 h-4 w-4" />}
+            Guardar como Pago Completo
+          </Button>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-lg border border-border p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm font-semibold">Pago de Abril</p>
-                  </div>
-                  <p className="text-2xl font-bold">
-                    ${(totalDecimo / 3).toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">15 de abril</p>
-                </div>
-                <div className="rounded-lg border border-border p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm font-semibold">Pago de Agosto</p>
-                  </div>
-                  <p className="text-2xl font-bold">
-                    ${(totalDecimo / 3).toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">15 de agosto</p>
-                </div>
-                <div className="rounded-lg border border-border p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm font-semibold">Pago de Diciembre</p>
-                  </div>
-                  <p className="text-2xl font-bold">
-                    ${(totalDecimo / 3).toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">15 de diciembre</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Cálculo por Empleado</CardTitle>
-            <CardDescription>
-              El décimo tercer mes tiene deducciones de CSS (7.25%) e ISR según el salario anual del empleado
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-md border border-border overflow-x-auto">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+                <Button 
+                    variant="destructive" 
+                    disabled={isSaving || entriesForCurrentYear.length === 0}
+                >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Limpiar Año
+                </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>¿Eliminar Cálculo del Décimo?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Esta acción eliminará todos los cálculos de Décimo Tercer Mes para el año <span className="font-bold">{currentYear}</span>.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction 
+                        className="bg-red-600 hover:bg-red-700" 
+                        onClick={handleClearDecimo}
+                    >
+                        Confirmar
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      )}
+      
+      {/* Tabla de Resultados (Mantenida) */}
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>Resultados del Décimo Tercer Mes ({currentYear})</CardTitle>
+          <CardDescription>
+            {calculatedDecimos.length} empleados listos.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {calculatedDecimos.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground">
+              No hay cálculos de décimo para mostrar.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Empleado</TableHead>
-                    <TableHead>Cédula</TableHead>
-                    <TableHead className="text-right">Salario Promedio</TableHead>
-                    <TableHead className="text-center">Meses</TableHead>
-                    <TableHead className="text-right">Monto Bruto</TableHead>
-                    <TableHead className="text-right">CSS Emp. (7.25%)</TableHead>
-                    <TableHead className="text-right">CSS Patr. (10.75%)</TableHead>
-                    <TableHead className="text-right">ISR</TableHead>
-                    <TableHead className="text-right">Monto Neto</TableHead>
-                    <TableHead className="text-right">Por Pago</TableHead>
-                    <TableHead className="text-center">Acciones</TableHead>
+                    <TableHead>Meses Trab.</TableHead>
+                    <TableHead>Salario Promedio</TableHead>
+                    <TableHead>Monto Bruto</TableHead>
+                    <TableHead>Deducciones (CSS+ISR)</TableHead>
+                    <TableHead>Monto Neto</TableHead>
+                    <TableHead>Estado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {activeEmployees.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={11} className="text-center text-muted-foreground">
-                        No hay empleados activos
+                  {calculatedDecimos.map((calc) => (
+                    <TableRow key={calc.empleadoId}>
+                      <TableCell className="font-medium">{calc.employeeName}</TableCell>
+                      <TableCell>{calc.mesesTrabajados}</TableCell>
+                      <TableCell>{formatCurrency(calc.salarioPromedio)}</TableCell>
+                      <TableCell>{formatCurrency(calc.montoTotal)}</TableCell>
+                      <TableCell>{formatCurrency(calc.totalDeducciones)}</TableCell>
+                      <TableCell className="font-bold">{formatCurrency(calc.montoNeto)}</TableCell>
+                      <TableCell>
+                        <Badge variant={calc.estado === 'pagado_completo' ? "success" : "default"}>
+                            {calc.estado.replace('_', ' ')}
+                        </Badge>
                       </TableCell>
                     </TableRow>
-                  ) : (
-                    activeEmployees.map((employee) => {
-                      const calculated = calculatedDecimo.find((c) => c.employee.id === employee.id)
-                      const saved = yearDecimo.find((d) => d.empleadoId === employee.id)
-
-                      return (
-                        <TableRow key={employee.id}>
-                          <TableCell className="font-medium">
-                            {employee.nombre} {employee.apellido}
-                          </TableCell>
-                          <TableCell className="font-mono">{employee.cedula}</TableCell>
-                          <TableCell className="text-right font-mono">
-                            {calculated ? (
-                              `$${calculated.calculation.salarioPromedio.toLocaleString("es-PA", { minimumFractionDigits: 2 })}`
-                            ) : saved && saved.salarioPromedio !== undefined ? (
-                              `$${saved.salarioPromedio.toLocaleString("es-PA", { minimumFractionDigits: 2 })}`
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            {calculated ? (
-                              <span title={calculated.calculation.mesesDetalle.join(", ")}>
-                                {calculated.calculation.mesesTrabajados}
-                              </span>
-                            ) : saved && saved.mesesTrabajados !== undefined ? (
-                              saved.mesesTrabajados
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {calculated ? (
-                              `$${calculated.calculation.montoTotal.toLocaleString("es-PA", { minimumFractionDigits: 2 })}`
-                            ) : saved && saved.montoTotal !== undefined ? (
-                              `$${saved.montoTotal.toLocaleString("es-PA", { minimumFractionDigits: 2 })}`
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-red-600 dark:text-red-400">
-                            {calculated ? (
-                              `-$${calculated.calculation.css.toLocaleString("es-PA", { minimumFractionDigits: 2 })}`
-                            ) : saved && saved.css !== undefined ? (
-                              `-$${saved.css.toLocaleString("es-PA", { minimumFractionDigits: 2 })}`
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-blue-600 dark:text-blue-400">
-                            {calculated ? (
-                              `$${calculated.calculation.cssPatrono.toLocaleString("es-PA", { minimumFractionDigits: 2 })}`
-                            ) : saved && saved.cssPatrono !== undefined ? (
-                              `$${saved.cssPatrono.toLocaleString("es-PA", { minimumFractionDigits: 2 })}`
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-red-600 dark:text-red-400">
-                            {calculated ? (
-                              `-$${calculated.calculation.isr.toLocaleString("es-PA", { minimumFractionDigits: 2 })}`
-                            ) : saved && saved.isr !== undefined ? (
-                              `-$${saved.isr.toLocaleString("es-PA", { minimumFractionDigits: 2 })}`
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right font-mono font-bold text-primary">
-                            {calculated ? (
-                              `$${calculated.calculation.montoNeto.toLocaleString("es-PA", { minimumFractionDigits: 2 })}`
-                            ) : saved && saved.montoNeto !== undefined ? (
-                              `$${saved.montoNeto.toLocaleString("es-PA", { minimumFractionDigits: 2 })}`
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-sm">
-                            {calculated ? (
-                              `$${(calculated.calculation.montoNeto / 3).toLocaleString("es-PA", { minimumFractionDigits: 2 })}`
-                            ) : saved && saved.montoNeto !== undefined ? (
-                              `$${(saved.montoNeto / 3).toLocaleString("es-PA", { minimumFractionDigits: 2 })}`
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            {calculated && (
-                              <div className="flex items-center justify-center gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setSelectedEmployee({ employee, calculation: calculated.calculation })}
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Button>
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="sm">
-                                      <Download className="h-4 w-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end">
-                                    <DropdownMenuLabel>Descargar Comprobantes</DropdownMenuLabel>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      onClick={() => generateDecimoPDF(employee, calculated.calculation, selectedYear)}
-                                    >
-                                      <FileText className="h-4 w-4 mr-2" />
-                                      Comprobante Completo
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        generateDecimoPaymentVoucher(
-                                          employee,
-                                          calculated.calculation,
-                                          selectedYear,
-                                          "abril",
-                                        )
-                                      }
-                                    >
-                                      Voucher Abril
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        generateDecimoPaymentVoucher(
-                                          employee,
-                                          calculated.calculation,
-                                          selectedYear,
-                                          "agosto",
-                                        )
-                                      }
-                                    >
-                                      Voucher Agosto
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        generateDecimoPaymentVoucher(
-                                          employee,
-                                          calculated.calculation,
-                                          selectedYear,
-                                          "diciembre",
-                                        )
-                                      }
-                                    >
-                                      Voucher Diciembre
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })
-                  )}
+                  ))}
                 </TableBody>
               </Table>
             </div>
-
-            <div className="mt-6 rounded-lg bg-muted p-4">
-              <h4 className="font-semibold mb-2">Información sobre el Décimo Tercer Mes en Panamá</h4>
-              <ul className="text-sm text-muted-foreground space-y-1">
-                <li>
-                  • <strong>Fórmula: Ingresos Totales × 4/12</strong>
-                </li>
-                <li>• Se paga en TRES partes iguales: 15 de abril, 15 de agosto, 15 de diciembre</li>
-                <li>
-                  • <strong>Deducciones empleado:</strong> CSS (7.25%) e ISR según salario anual
-                </li>
-                <li>
-                  • <strong>Aporte patronal:</strong> CSS (10.75%) sobre el monto del décimo
-                </li>
-                <li>• El ISR se calcula sobre el ingreso anual total incluyendo el décimo</li>
-                <li>• Cada pago representa 1/3 del monto neto después de deducciones</li>
-              </ul>
-            </div>
-          </CardContent>
-        </Card>
-      </main>
-
-      <Dialog open={!!selectedEmployee} onOpenChange={() => setSelectedEmployee(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              Detalle de Décimo Tercer Mes - {selectedEmployee?.employee.nombre} {selectedEmployee?.employee.apellido}
-            </DialogTitle>
-            <DialogDescription>Desglose completo de cálculo con deducciones</DialogDescription>
-          </DialogHeader>
-
-          {selectedEmployee && (
-            <div className="space-y-6">
-              <div>
-                <h3 className="font-semibold mb-3">Información del Cálculo</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Salario Promedio</p>
-                    <p className="text-lg font-semibold">
-                      $
-                      {selectedEmployee.calculation.salarioPromedio.toLocaleString("es-PA", {
-                        minimumFractionDigits: 2,
-                      })}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Meses Trabajados</p>
-                    <p className="text-lg font-semibold">{selectedEmployee.calculation.mesesTrabajados}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {selectedEmployee.calculation.mesesDetalle.join(", ")}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-4 rounded-lg bg-blue-50 dark:bg-blue-950 p-3">
-                  <p className="text-xs font-semibold text-blue-900 dark:text-blue-100 mb-1">Fórmula aplicada:</p>
-                  <p className="text-sm font-mono text-blue-900 dark:text-blue-100">
-                    $
-                    {(
-                      selectedEmployee.calculation.salarioPromedio * selectedEmployee.calculation.mesesTrabajados
-                    ).toLocaleString("es-PA", { minimumFractionDigits: 2 })}{" "}
-                    × 4/12 = $
-                    {selectedEmployee.calculation.montoTotal.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-                  </p>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div>
-                <h3 className="font-semibold mb-3">Deducciones y Aportes</h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Monto Bruto</span>
-                    <span className="font-mono font-semibold">
-                      ${selectedEmployee.calculation.montoTotal.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-red-600 dark:text-red-400">
-                    <span className="text-sm">CSS Empleado (7.25%)</span>
-                    <span className="font-mono">
-                      -${selectedEmployee.calculation.css.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-blue-600 dark:text-blue-400">
-                    <span className="text-sm">CSS Patrono (10.75%)</span>
-                    <span className="font-mono">
-                      ${selectedEmployee.calculation.cssPatrono.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-red-600 dark:text-red-400">
-                    <span className="text-sm">ISR</span>
-                    <span className="font-mono">
-                      -${selectedEmployee.calculation.isr.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between items-center font-semibold">
-                    <span>Total Deducciones Empleado</span>
-                    <span className="font-mono text-red-600 dark:text-red-400">
-                      -$
-                      {selectedEmployee.calculation.totalDeducciones.toLocaleString("es-PA", {
-                        minimumFractionDigits: 2,
-                      })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center font-semibold">
-                    <span>Total Aportes Patronales</span>
-                    <span className="font-mono text-blue-600 dark:text-blue-400">
-                      $
-                      {selectedEmployee.calculation.totalAportesPatronales.toLocaleString("es-PA", {
-                        minimumFractionDigits: 2,
-                      })}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div>
-                <h3 className="font-semibold mb-3">Monto Neto a Pagar</h3>
-                <div className="rounded-lg bg-primary/10 p-4 mb-4">
-                  <p className="text-3xl font-bold text-primary">
-                    ${selectedEmployee.calculation.montoNeto.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-2">Después de deducciones</p>
-                </div>
-
-                <h4 className="font-semibold mb-3 text-sm">Pagos Programados (3 cuotas iguales)</h4>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="rounded-lg border border-border p-3 text-center">
-                    <Calendar className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-                    <p className="text-xs text-muted-foreground mb-1">15 Abril</p>
-                    <p className="font-bold">
-                      ${selectedEmployee.calculation.pagoAbril.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-border p-3 text-center">
-                    <Calendar className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-                    <p className="text-xs text-muted-foreground mb-1">15 Agosto</p>
-                    <p className="font-bold">
-                      ${selectedEmployee.calculation.pagoAgosto.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-border p-3 text-center">
-                    <Calendar className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-                    <p className="text-xs text-muted-foreground mb-1">15 Diciembre</p>
-                    <p className="font-bold">
-                      $
-                      {selectedEmployee.calculation.pagoDiciembre.toLocaleString("es-PA", {
-                        minimumFractionDigits: 2,
-                      })}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="flex gap-2">
-                <Button
-                  onClick={() =>
-                    generateDecimoPDF(selectedEmployee.employee, selectedEmployee.calculation, selectedYear)
-                  }
-                  className="flex-1 gap-2"
-                >
-                  <Download className="h-4 w-4" />
-                  Descargar Comprobante Completo
-                </Button>
-              </div>
-            </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </CardContent>
+      </Card>
+
+      <div className="mt-6">
+        <h2 className="text-xl font-bold mb-3">Resumen del Pago Anual</h2>
+        <Card>
+            <CardContent className="pt-6 grid grid-cols-3 gap-6">
+                <div className="space-y-1">
+                    <p className="text-sm font-medium text-muted-foreground">Total Pago Abril</p>
+                    <p className="text-2xl font-bold">{formatCurrency(calculatedDecimos.reduce((sum, c) => sum + c.pagoAbril, 0))}</p>
+                </div>
+                <div className="space-y-1">
+                    <p className="text-sm font-medium text-muted-foreground">Total Pago Agosto</p>
+                    <p className="text-2xl font-bold">{formatCurrency(calculatedDecimos.reduce((sum, c) => sum + c.pagoAgosto, 0))}</p>
+                </div>
+                <div className="space-y-1">
+                    <p className="text-sm font-medium text-muted-foreground">Total Pago Diciembre</p>
+                    <p className="text-2xl font-bold">{formatCurrency(calculatedDecimos.reduce((sum, c) => sum + c.pagoDiciembre, 0))}</p>
+                </div>
+            </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

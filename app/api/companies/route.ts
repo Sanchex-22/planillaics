@@ -1,8 +1,8 @@
 // File: app/api/companies/route.ts
 
-import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import type { Company } from '@/lib/types'
+import { db } from '@/lib/db/db'
 
 // GET /api/companies - Obtener todas las empresas (o por usuario, si se implementa auth)
 export async function GET() {

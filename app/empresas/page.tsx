@@ -1,152 +1,157 @@
+// File: app/empresas/page.tsx (AJUSTADO)
+
 "use client"
 
-import { usePayroll } from "@/lib/payroll-context"
-import { SidebarNav } from "@/components/sidebar-nav"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Plus, Building2, Edit, CheckCircle, XCircle } from "lucide-react"
 import { useState } from "react"
-import { CompanyDialog } from "@/components/company-dialog"
-import type { Company } from "@/lib/types"
+import { usePayroll } from "@/lib/payroll-context"
+import { PlusCircle, Trash2, Edit, ChevronDown, Check, X } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { format } from "date-fns"
+import { Badge } from "@/components/ui/badge"
+import CompanyDialog from "@/components/company-dialog"
+import { Company } from "@/lib/types"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Separator } from "@/components/ui/separator"
+import { formatCurrency } from "@/lib/utils"
 
 export default function EmpresasPage() {
-  const { companies, currentUser, isHydrated } = usePayroll()
+  const { companies, selectCompany, deleteCompany, currentCompany } = usePayroll()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingCompany, setEditingCompany] = useState<Company | null>(null)
-
-  if (!isHydrated) {
-    return (
-      <div className="flex min-h-screen bg-background">
-        <aside className="w-64 border-r border-border bg-card">
-          <SidebarNav />
-        </aside>
-        <main className="flex-1 p-8">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-foreground">Gestión de Empresas</h1>
-            <p className="text-muted-foreground">Cargando...</p>
-          </div>
-        </main>
-      </div>
-    )
-  }
-
-  if (currentUser?.rol !== "super_admin") {
-    return (
-      <div className="flex min-h-screen bg-background">
-        <aside className="w-64 border-r border-border bg-card">
-          <SidebarNav />
-        </aside>
-        <main className="flex-1 p-8">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-foreground">Acceso Denegado</h1>
-            <p className="text-muted-foreground">No tiene permisos para acceder a esta página</p>
-          </div>
-        </main>
-      </div>
-    )
-  }
 
   const handleEdit = (company: Company) => {
     setEditingCompany(company)
     setIsDialogOpen(true)
   }
 
-  const handleAdd = () => {
-    setEditingCompany(null)
-    setIsDialogOpen(true)
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteCompany(id) // <<-- Cambio: La llamada al contexto ahora es asíncrona
+    } catch (e) {
+      console.error("Failed to delete company:", e)
+    }
   }
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <aside className="w-64 border-r border-border bg-card">
-        <SidebarNav />
-      </aside>
-      <main className="flex-1 p-8">
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Gestión de Empresas</h1>
-            <p className="text-muted-foreground">Administre las empresas del sistema</p>
-          </div>
-          <Button onClick={handleAdd}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nueva Empresa
-          </Button>
-        </div>
+    <div className="p-8">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Gestión de Empresas</h1>
+        <Button onClick={() => { setEditingCompany(null); setIsDialogOpen(true) }}>
+          <PlusCircle className="mr-2 h-4 w-4" />
+          Nueva Empresa
+        </Button>
+      </div>
+      <Separator className="mb-6" />
 
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {companies.map((company) => (
-            <Card key={company.id}>
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2">
-                    <Building2 className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-lg">{company.nombre}</CardTitle>
-                  </div>
-                  {company.activo ? (
-                    <CheckCircle className="h-5 w-5 text-green-500" />
-                  ) : (
-                    <XCircle className="h-5 w-5 text-red-500" />
-                  )}
-                </div>
-                <CardDescription>{company.ruc || "Sin RUC"}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2 text-sm">
-                  {company.direccion && (
-                    <div>
-                      <span className="font-medium">Dirección:</span> {company.direccion}
-                    </div>
-                  )}
-                  {company.telefono && (
-                    <div>
-                      <span className="font-medium">Teléfono:</span> {company.telefono}
-                    </div>
-                  )}
-                  {company.email && (
-                    <div>
-                      <span className="font-medium">Email:</span> {company.email}
-                    </div>
-                  )}
-                  {company.representanteLegal && (
-                    <div>
-                      <span className="font-medium">Representante:</span> {company.representanteLegal}
-                    </div>
-                  )}
-                  <div className="pt-2">
-                    <Button variant="outline" size="sm" onClick={() => handleEdit(company)}>
-                      <Edit className="mr-2 h-3 w-3" />
-                      Editar
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+      <CompanyDialog 
+        isOpen={isDialogOpen} 
+        setIsOpen={setIsDialogOpen} 
+        companyToEdit={editingCompany} 
+        setCompanyToEdit={setEditingCompany}
+      />
 
-        {companies.length === 0 && (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Building2 className="h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-muted-foreground mb-4">No hay empresas registradas</p>
-              <Button onClick={handleAdd}>
-                <Plus className="mr-2 h-4 w-4" />
-                Agregar Primera Empresa
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        <CompanyDialog
-          open={isDialogOpen}
-          onOpenChange={setIsDialogOpen}
-          company={editingCompany}
-          onClose={() => {
-            setIsDialogOpen(false)
-            setEditingCompany(null)
-          }}
-        />
-      </main>
+      <Card>
+        <CardHeader>
+          <CardTitle>Listado de Empresas</CardTitle>
+          <CardDescription>
+            {companies.length} empresas registradas en el sistema.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {companies.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground">
+              No hay empresas registradas. ¡Agrega una para comenzar!
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nombre</TableHead>
+                    <TableHead>RUC</TableHead>
+                    <TableHead>Representante Legal</TableHead>
+                    <TableHead>Activo</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {companies.map((company) => (
+                    <TableRow key={company.id} className={company.id === currentCompany?.id ? "bg-accent" : ""}>
+                      <TableCell className="font-medium">{company.nombre}</TableCell>
+                      <TableCell>{company.ruc}</TableCell>
+                      <TableCell>{company.representanteLegal || 'N/A'}</TableCell>
+                      <TableCell>
+                        <Badge variant={company.activo ? "default" : "secondary"}>
+                          {company.activo ? "Sí" : "No"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" className="h-8 w-8 p-0">
+                              <span className="sr-only">Abrir menú</span>
+                              <ChevronDown className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Acciones</DropdownMenuLabel>
+                            <DropdownMenuItem 
+                                onClick={() => selectCompany(company.id)}
+                                className="cursor-pointer"
+                            >
+                                {company.id === currentCompany?.id ? (
+                                    <>
+                                        <Check className="mr-2 h-4 w-4" /> Compañía Activa
+                                    </>
+                                ) : (
+                                    <>
+                                        <X className="mr-2 h-4 w-4" /> Seleccionar
+                                    </>
+                                )}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="cursor-pointer" onClick={() => handleEdit(company)}>
+                              <Edit className="mr-2 h-4 w-4" /> Editar
+                            </DropdownMenuItem>
+                            
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <DropdownMenuItem className="cursor-pointer text-red-600" onSelect={(e) => e.preventDefault()}>
+                                  <Trash2 className="mr-2 h-4 w-4" /> Eliminar
+                                </DropdownMenuItem>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>¿Está absolutamente seguro?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Esta acción no se puede deshacer. Se eliminarán permanentemente la empresa y todos sus datos relacionados (empleados, planillas, cálculos).
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction 
+                                    className="bg-red-600 hover:bg-red-700" 
+                                    onClick={() => handleDelete(company.id)}
+                                  >
+                                    Confirmar Eliminación
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

@@ -1,14 +1,16 @@
-// File: sanchex-22/planillaics/planillaics-c9bc5f2d130ae3a5668ef2ea9d14f2e5025f271e/app/page.tsx
+// File: app/page.tsx (MIGRADO A PRISMA)
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, DollarSign, TrendingUp, Calendar } from "lucide-react"
 import { SidebarNav } from "@/components/sidebar-nav"
-import { db } from "@/lib/db/db";
-// NUEVA IMPORTACIÓN
+
+// IMPORTACIÓN DE PRISMA (Asumiendo que el cliente está en "@/lib/db/db.ts" o "@/lib/db")
+// Mantengo la importación que proporcionaste en el snippet:
+import { db } from "@/lib/db/db"; 
 
 export default async function DashboardPage() {
-  // NOTA: Se asume que obtendremos el ID de la compañía de la autenticación en un
-  // futuro, por ahora, buscamos la primera o usamos un mock.
+  // NOTA: En un proyecto real, el ID de la compañía se obtendría del contexto de autenticación
+  // del usuario logueado. Aquí usamos el primer registro como mock.
   const firstCompany = await db.company.findFirst();
   const currentCompanyId = firstCompany?.id || "default-company-id";
 
@@ -26,8 +28,9 @@ export default async function DashboardPage() {
   const currentMonthPayroll = await db.payrollEntry.findMany({
     where: {
       companiaId: currentCompanyId,
+      // Busca todas las entradas que comienzan con el mes actual (incluyendo quincenas)
       periodo: {
-        startsWith: currentMonth
+        startsWith: currentMonth 
       }
     },
     select: {
@@ -36,6 +39,7 @@ export default async function DashboardPage() {
     }
   })
 
+  // 3. Cálculos de Totales
   const totalPayroll = currentMonthPayroll?.reduce((sum, entry) => sum + (entry.salarioNeto || 0), 0) || 0
   const totalGross = currentMonthPayroll?.reduce((sum, entry) => sum + (entry.salarioBruto || 0), 0) || 0
 
@@ -127,8 +131,8 @@ export default async function DashboardPage() {
                 </div>
                 <div className="pt-4 border-t border-border">
                   <p className="text-sm text-muted-foreground">
-                    Comience agregando empleados desde el menú <strong>Empleados</strong> o calcule la planilla del mes
-                    actual en <strong>Calcular Planilla</strong>.
+                    Comience agregando empleados desde el menú **Empleados** o calcule la planilla del mes
+                    actual en **Calcular Planilla**.
                   </p>
                 </div>
               </div>
