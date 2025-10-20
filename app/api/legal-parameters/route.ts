@@ -1,8 +1,8 @@
 // File: app/api/legal-parameters/route.ts
 
-import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import type { LegalParameters } from '@/lib/types'
+import { db } from '@/lib/db/db'
 
 // GET /api/legal-parameters?companiaId=... - Obtener todos los parámetros
 export async function GET(request: Request) {

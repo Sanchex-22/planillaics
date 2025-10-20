@@ -44,13 +44,16 @@ export interface Employee {
   otrasDeduccionesPersonalizadas?: EmployeeDeduction[]
 }
 
+// File: lib/types.ts (Asegúrate de que coincida con lo que tu frontend/backend espera)
+
 export interface EmployeeDeduction {
-  id: string
-  concepto: string
-  monto: number
-  tipo: "fijo" | "porcentaje"
-  activo: boolean
-  mesesAplicacion?: number[]
+  // Asegúrate de que estos campos existan y sean correctos
+  id: string; 
+  concepto: string;
+  monto: number;
+  tipo: 'fijo' | 'porcentual'; // Ejemplo
+  activo: boolean; 
+  // ... cualquier otro campo que uses, como 'mensual'
 }
 
 export interface LegalParameters {

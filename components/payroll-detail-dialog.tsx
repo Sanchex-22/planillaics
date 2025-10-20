@@ -19,22 +19,30 @@ interface PayrollDetailDialogProps {
 }
 
 export function PayrollDetailDialog({ open, onOpenChange, employee, calculation, periodo }: PayrollDetailDialogProps) {
-  const { currentCompany, companies } = usePayroll()
-  const companyName = companies.find((c) => c.id === currentCompany)?.nombre
+  // Solo necesitamos currentCompany. companies ya no es necesario aquí.
+  const { currentCompany } = usePayroll() 
+
+  // CORRECCIÓN: Usar el objeto currentCompany directamente.
+  // Si currentCompany es null, companyName será undefined.
+  const companyName = currentCompany?.nombre 
 
   const handleDownloadPDF = () => {
+    // Pasar companyName (string | undefined) a la función PDF
     generatePayrollPDF(employee, calculation, periodo, companyName)
   }
 
+  // --- El resto del JSX permanece igual ---
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            Detalle de Planilla - {employee.nombre} {employee.apellido}
+            Detalle de Planilla - {employee?.nombre} {employee?.apellido}
           </DialogTitle>
           <DialogDescription>Período: {periodo}</DialogDescription>
         </DialogHeader>
+
+        {/* ... (El resto del contenido del Dialog) ... */}
 
         <div className="space-y-6">
           {/* Employee Information */}
@@ -43,20 +51,20 @@ export function PayrollDetailDialog({ open, onOpenChange, employee, calculation,
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-muted-foreground">Cédula</p>
-                <p className="font-medium">{employee.cedula}</p>
+                <p className="font-medium">{employee?.cedula}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Departamento</p>
-                <p className="font-medium">{employee.departamento}</p>
+                <p className="font-medium">{employee?.departamento}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Cargo</p>
-                <p className="font-medium">{employee.cargo}</p>
+                <p className="font-medium">{employee?.cargo}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Salario Base</p>
                 <p className="font-medium font-mono">
-                  ${employee.salarioBase.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
+                  ${employee?.salarioBase.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
                 </p>
               </div>
             </div>
@@ -75,7 +83,7 @@ export function PayrollDetailDialog({ open, onOpenChange, employee, calculation,
                 <TableRow>
                   <TableCell className="font-medium">Salario Bruto</TableCell>
                   <TableCell className="text-right font-mono">
-                    ${calculation.salarioBruto.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
+                    ${calculation?.salarioBruto.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
                   </TableCell>
                 </TableRow>
 
@@ -87,71 +95,71 @@ export function PayrollDetailDialog({ open, onOpenChange, employee, calculation,
                 <TableRow>
                   <TableCell className="pl-8">Seguro Social Empleado (9.75%)</TableCell>
                   <TableCell className="text-right font-mono text-destructive">
-                    -${calculation.seguroSocialEmpleado.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
+                    -${calculation?.seguroSocialEmpleado.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
                   </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="pl-8">Seguro Educativo (1.25%)</TableCell>
                   <TableCell className="text-right font-mono text-destructive">
-                    -${calculation.seguroEducativo.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
+                    -${calculation?.seguroEducativo.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
                   </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="pl-8">ISR</TableCell>
                   <TableCell className="text-right font-mono text-destructive">
-                    -${calculation.isr.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
+                    -${calculation?.isr?.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
                   </TableCell>
                 </TableRow>
 
-                {(calculation.deduccionesBancarias > 0 ||
-                  calculation.prestamos > 0 ||
-                  calculation.otrasDeduccionesPersonalizadas > 0) && (
-                  <>
-                    <TableRow>
-                      <TableCell colSpan={2} className="font-semibold bg-muted/50">
-                        Deducciones Personales
-                      </TableCell>
-                    </TableRow>
-                    {calculation.deduccionesBancarias > 0 && (
+                {(calculation?.deduccionesBancarias > 0 ||
+                  calculation?.prestamos > 0 ||
+                  calculation?.otrasDeduccionesPersonalizadas > 0) && (
+                    <>
                       <TableRow>
-                        <TableCell className="pl-8">Deducciones Bancarias</TableCell>
-                        <TableCell className="text-right font-mono text-destructive">
-                          -${calculation.deduccionesBancarias.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
+                        <TableCell colSpan={2} className="font-semibold bg-muted/50">
+                          Deducciones Personales
                         </TableCell>
                       </TableRow>
-                    )}
-                    {calculation.prestamos > 0 && (
-                      <TableRow>
-                        <TableCell className="pl-8">Préstamos</TableCell>
-                        <TableCell className="text-right font-mono text-destructive">
-                          -${calculation.prestamos.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                    {calculation.otrasDeduccionesPersonalizadas > 0 && (
-                      <TableRow>
-                        <TableCell className="pl-8">Otras Deducciones</TableCell>
-                        <TableCell className="text-right font-mono text-destructive">
-                          -$
-                          {calculation.otrasDeduccionesPersonalizadas.toLocaleString("es-PA", {
-                            minimumFractionDigits: 2,
-                          })}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </>
-                )}
+                      {calculation.deduccionesBancarias > 0 && (
+                        <TableRow>
+                          <TableCell className="pl-8">Deducciones Bancarias</TableCell>
+                          <TableCell className="text-right font-mono text-destructive">
+                            -${calculation.deduccionesBancarias.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {calculation?.prestamos > 0 && (
+                        <TableRow>
+                          <TableCell className="pl-8">Préstamos</TableCell>
+                          <TableCell className="text-right font-mono text-destructive">
+                            -${calculation?.prestamos.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {calculation?.otrasDeduccionesPersonalizadas > 0 && (
+                        <TableRow>
+                          <TableCell className="pl-8">Otras Deducciones</TableCell>
+                          <TableCell className="text-right font-mono text-destructive">
+                            -$
+                            {calculation?.otrasDeduccionesPersonalizadas.toLocaleString("es-PA", {
+                              minimumFractionDigits: 2,
+                            })}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </>
+                  )}
 
                 <TableRow>
                   <TableCell className="font-medium">Total Deducciones</TableCell>
                   <TableCell className="text-right font-mono text-destructive">
-                    -${calculation.totalDeducciones.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
+                    -${calculation?.totalDeducciones.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
                   </TableCell>
                 </TableRow>
                 <TableRow className="bg-primary/5">
                   <TableCell className="font-bold">Salario Neto</TableCell>
                   <TableCell className="text-right font-mono font-bold text-primary text-lg">
-                    ${calculation.salarioNeto.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
+                    ${calculation?.salarioNeto.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -166,19 +174,19 @@ export function PayrollDetailDialog({ open, onOpenChange, employee, calculation,
               <div className="flex justify-between">
                 <span>Seguro Social Empleador (13.25%)</span>
                 <span className="font-mono">
-                  ${calculation.seguroSocialEmpleador.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
+                  ${calculation?.seguroSocialEmpleador.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span>Seguro Educativo Empleador (1.5%)</span>
                 <span className="font-mono">
-                  ${calculation.seguroEducativoEmpleador.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
+                  ${calculation?.seguroEducativoEmpleador.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span>Riesgo Profesional (0.98%)</span>
                 <span className="font-mono">
-                  ${calculation.riesgoProfesional.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
+                  ${calculation?.riesgoProfesional.toLocaleString("es-PA", { minimumFractionDigits: 2 })}
                 </span>
               </div>
               <Separator className="my-2" />
@@ -187,9 +195,9 @@ export function PayrollDetailDialog({ open, onOpenChange, employee, calculation,
                 <span className="font-mono">
                   $
                   {(
-                    calculation.seguroSocialEmpleador +
-                    calculation.seguroEducativoEmpleador +
-                    calculation.riesgoProfesional
+                    calculation?.seguroSocialEmpleador +
+                    calculation?.seguroEducativoEmpleador +
+                    calculation?.riesgoProfesional
                   ).toLocaleString("es-PA", { minimumFractionDigits: 2 })}
                 </span>
               </div>
@@ -198,10 +206,10 @@ export function PayrollDetailDialog({ open, onOpenChange, employee, calculation,
                 <span className="font-mono text-lg">
                   $
                   {(
-                    calculation.salarioBruto +
-                    calculation.seguroSocialEmpleador +
-                    calculation.seguroEducativoEmpleador +
-                    calculation.riesgoProfesional
+                    calculation?.salarioBruto +
+                    calculation?.seguroSocialEmpleador +
+                    calculation?.seguroEducativoEmpleador +
+                    calculation?.riesgoProfesional
                   ).toLocaleString("es-PA", { minimumFractionDigits: 2 })}
                 </span>
               </div>

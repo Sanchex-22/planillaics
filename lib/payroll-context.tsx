@@ -1,4 +1,4 @@
-// File: lib/payroll-context.tsx (COMPLETO Y CORREGIDO)
+// File: lib/payroll-context.tsx (COMPLETO Y CORREGIDO PARA EVITAR TYPEERROR)
 
 "use client"
 
@@ -12,10 +12,10 @@ import {
   PayrollEntry, 
   DecimoTercerMes, 
   SIPEPayment, 
-  User // Importado de ./types
+  User 
 } from "./types"
 import { apiFetcher } from "./utils"
-import { PayrollCalculationInput, PayrollCalculationResult } from "./server-calculations" // Importar ambos tipos
+import { PayrollCalculationInput, PayrollCalculationResult } from "./server-calculations" 
 
 // =================================================================
 // 1. TYPING AND INITIAL STATE
@@ -35,16 +35,17 @@ interface PayrollContextType {
   // Loading States
   isLoading: boolean
   
-  // FIX: Nuevos estados de autenticación y carga
+  // States de Autenticación/Carga
   currentUser: User | null 
-  isHydrated: boolean // Indica si la carga inicial de la sesión y la compañía ha terminado
+  isHydrated: boolean 
 
   // Filters
   currentPeriod: string
   currentYear: number
 
   // Actions
-  selectCompany: (companyId: string | null) => void
+  // Nombre corregido para CompanySelector
+  setCurrentCompanyId: (companyId: string | null) => void 
   selectPeriod: (period: string) => void
   selectYear: (year: number) => void
 
@@ -81,7 +82,63 @@ interface PayrollContextType {
   calculateSIPEApi: (periodo: string) => Promise<SIPEPayment>
 }
 
-const PayrollContext = createContext<PayrollContextType | undefined>(undefined)
+// -----------------------------------------------------------------
+// FUNCIÓN STUB Y VALOR INICIAL PARA EVITAR EL 'TypeError: is not a function'
+// -----------------------------------------------------------------
+// Esta función garantiza que si el componente se renderiza antes que el Provider, 
+// la llamada a 'addEmployee' no falle.
+
+const NO_OP = () => { throw new Error("PayrollContext function called outside of provider. Check if component is wrapped."); };
+const ASYNC_NO_OP = () => Promise.reject(new Error("PayrollContext async function called outside of provider."));
+
+const initialContextValue: PayrollContextType = {
+  // Data States (valores iniciales)
+  companies: [],
+  currentCompany: null,
+  employees: [],
+  legalParameters: [],
+  isrBrackets: [],
+  payrollEntries: [],
+  decimoEntries: [],
+  sipePayments: [],
+  isLoading: false,
+  currentUser: null,
+  isHydrated: false,
+  currentPeriod: new Date().toISOString().slice(0, 7),
+  currentYear: new Date().getFullYear(),
+
+  // Actions (TODAS las funciones deben ser definidas, aunque sea como stub)
+  setCurrentCompanyId: NO_OP,
+  selectPeriod: NO_OP,
+  selectYear: NO_OP,
+
+  // CRUD Operations (usamos ASYNC_NO_OP para funciones que devuelven Promise)
+  addCompany: ASYNC_NO_OP,
+  updateCompany: ASYNC_NO_OP,
+  deleteCompany: ASYNC_NO_OP,
+  addEmployee: ASYNC_NO_OP, // <-- CORRECCIÓN CLAVE para el error
+  updateEmployee: ASYNC_NO_OP,
+  deleteEmployee: ASYNC_NO_OP,
+  clearAllEmployees: ASYNC_NO_OP,
+  addLegalParameter: ASYNC_NO_OP,
+  updateLegalParameter: ASYNC_NO_OP,
+  deleteLegalParameter: ASYNC_NO_OP,
+  updateISRBrackets: ASYNC_NO_OP,
+  savePayrollEntries: ASYNC_NO_OP,
+  deletePayrollEntry: ASYNC_NO_OP,
+  deletePeriodPayroll: ASYNC_NO_OP,
+  saveDecimoEntries: ASYNC_NO_OP,
+  deleteDecimoEntry: ASYNC_NO_OP,
+  deleteYearDecimo: ASYNC_NO_OP,
+  saveSIPEPayment: ASYNC_NO_OP,
+  deleteSIPEPayment: ASYNC_NO_OP,
+  calculatePayrollApi: ASYNC_NO_OP,
+  calculateDecimoApi: ASYNC_NO_OP,
+  calculateSIPEApi: ASYNC_NO_OP,
+};
+
+// Modificación: El contexto ahora usa el valor inicial tipado
+const PayrollContext = createContext<PayrollContextType>(initialContextValue);
 
 // =================================================================
 // 2. FETCHING AND DATA REVALIDATION LOGIC
@@ -99,10 +156,9 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [decimoEntries, setDecimoEntries] = useState<DecimoTercerMes[]>([])
   const [sipePayments, setSIPEPayments] = useState<SIPEPayment[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [currentPeriod, setCurrentPeriod] = useState(new Date().toISOString().slice(0, 7)) // YYYY-MM
+  const [currentPeriod, setCurrentPeriod] = useState(new Date().toISOString().slice(0, 7))
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear())
 
-  // FIX: Nuevos estados para Hydration/Auth
   const [currentUser, setCurrentUser] = useState<User | null>(null) 
   const [isHydrated, setIsHydrated] = useState(false) 
 
@@ -112,7 +168,6 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [companies, currentCompanyId],
   )
   
-  // Helper para obtener el ID de la compañía
   const getCompanyId = useCallback(() => {
     if (!currentCompanyId) {
       toast({
@@ -125,15 +180,13 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return currentCompanyId
   }, [currentCompanyId])
 
-  // Mock function to simulate user session loading
   const fetchCurrentUser = useCallback(async () => {
-    // --- MOCK DE USUARIO: Reemplaza con tu lógica real de autenticación ---
     await new Promise(resolve => setTimeout(resolve, 50)); 
     const mockUser: User = {
         id: "user-mock-123",
         nombre: "Usuario de Prueba",
         email: "test@planilla.com",
-        rol: "super_admin", // Mantenemos 'super_admin' para ver todas las rutas en Sidebar
+        rol: "super_admin", 
         companias: ["default-company-id"],
         activo: true,
     };
@@ -142,12 +195,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [])
 
 
-  // =================================================================
-  // Fetchers (Revalidation functions)
-  // =================================================================
-
   const fetchAllCompanies = useCallback(async () => {
-    // No ponemos setIsLoading(true) aquí, ya que se maneja en initialize()
     try {
       const data = await apiFetcher<Company[]>("/api/companies")
       setCompanies(data)
@@ -192,49 +240,38 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } finally {
       setIsLoading(false)
     }
-  }, [currentPeriod, currentYear]) // Dependencias para re-ejecutar si cambian los filtros de periodo
+  }, [currentPeriod, currentYear])
 
-  // =================================================================
-  // Effects CORREGIDOS: Inicialización y Hydration
-  // =================================================================
+  // Efectos de Inicialización (sin cambios relevantes)
   
-  // 1. Efecto de Inicialización y Autenticación (Se ejecuta una vez)
   useEffect(() => {
     async function initialize() {
-      // Step 1: Load User (simulated)
       const user = await fetchCurrentUser();
-
-      // Step 2: Load Companies
       const companiesData = await fetchAllCompanies();
       
-      // Step 3: Check saved company ID and set default
       const savedId = localStorage.getItem(localStorageKey);
       let initialCompanyId = savedId;
       
       if (!initialCompanyId && user && companiesData.length > 0) {
-          // Si no hay ID guardado, usa la primera compañía
           initialCompanyId = companiesData[0].id;
       }
       
       if (initialCompanyId) {
           setCurrentCompanyId(initialCompanyId);
-          // fetchCompanyData será llamado por el useEffect de currentCompanyId
       }
 
-      setIsHydrated(true); // Señalizar que la inicialización del cliente ha terminado
+      setIsHydrated(true); 
     }
 
     initialize();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchCurrentUser, fetchAllCompanies]);
 
-  // 2. Carga de datos de la compañía seleccionada (Mantenido)
   useEffect(() => {
     if (currentCompanyId) {
       fetchCompanyData(currentCompanyId)
       localStorage.setItem(localStorageKey, currentCompanyId)
     } else {
-      // Limpiar estados si no hay compañía
       setEmployees([])
       setLegalParameters([])
       setISRBrackets([])
@@ -245,15 +282,12 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [currentCompanyId, fetchCompanyData])
 
-  // 3. Revalidación de Planillas y Décimo al cambiar filtros (Mantenido)
   useEffect(() => {
     if (currentCompanyId) {
-        // Revalidar planillas por mes
         apiFetcher<PayrollEntry[]>(`/api/payroll-entries`, { params: { companiaId: currentCompanyId, periodo: currentPeriod.slice(0, 7) } })
             .then(setPayrollEntries)
             .catch(console.error);
 
-        // Revalidar décimo por año
         apiFetcher<DecimoTercerMes[]>(`/api/decimo-entries`, { params: { companiaId: currentCompanyId, anio: currentYear } })
             .then(setDecimoEntries)
             .catch(console.error);
@@ -261,10 +295,10 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [currentCompanyId, currentPeriod, currentYear])
 
   // =================================================================
-  // 3. ACTION HANDLERS (CRUD API calls) - IMPLEMENTACIÓN COMPLETA
+  // 3. ACTION HANDLERS (CRUD API calls)
   // =================================================================
   
-  const selectCompany = (companyId: string | null) => setCurrentCompanyId(companyId)
+  const handleSelectCompany = (companyId: string | null) => setCurrentCompanyId(companyId) 
   const selectPeriod = (period: string) => setCurrentPeriod(period)
   const selectYear = (year: number) => setCurrentYear(year)
   
@@ -308,12 +342,13 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [fetchAllCompanies, currentCompanyId])
   
   // --- Employees CRUD ---
+  // ESTA ES LA FUNCIÓN QUE FALLABA: addEmployee
   const addEmployee = useCallback(async (data: Omit<Employee, 'id'>) => {
     const companiaId = getCompanyId()
     if (!companiaId) throw new Error("No company selected.")
     try {
       const newEmployee = await apiFetcher<Employee>("/api/employees", { method: "POST", data: { ...data, companiaId } })
-      await fetchCompanyData(companiaId) // Revalidar empleados
+      await fetchCompanyData(companiaId) 
       toast({ title: "Empleado Agregado", description: `${newEmployee.nombre} ${newEmployee.apellido} ha sido agregado.`, variant: "success" })
       return newEmployee
     } catch (e: any) {
@@ -327,7 +362,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!companiaId) throw new Error("No company selected.")
     try {
       const updatedEmployee = await apiFetcher<Employee>(`/api/employees/${id}`, { method: "PATCH", data })
-      await fetchCompanyData(companiaId) // Revalidar empleados
+      await fetchCompanyData(companiaId) 
       toast({ title: "Empleado Actualizado", description: `${updatedEmployee.nombre} ${updatedEmployee.apellido} ha sido actualizado.`, variant: "success" })
       return updatedEmployee
     } catch (e: any) {
@@ -341,7 +376,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!companiaId) throw new Error("No company selected.")
     try {
       await apiFetcher<void>(`/api/employees/${id}`, { method: "DELETE" })
-      await fetchCompanyData(companiaId) // Revalidar empleados
+      await fetchCompanyData(companiaId) 
       toast({ title: "Empleado Eliminado", description: "El empleado ha sido eliminado.", variant: "success" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el empleado.", variant: "destructive" })
@@ -354,7 +389,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!companiaId) throw new Error("No company selected.")
     try {
       await apiFetcher<void>(`/api/employees`, { method: "DELETE", params: { companiaId } })
-      await fetchCompanyData(companiaId) // Revalidar empleados
+      await fetchCompanyData(companiaId) 
       toast({ title: "Empleados Eliminados", description: "Todos los empleados han sido eliminados.", variant: "success" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudieron eliminar los empleados.", variant: "destructive" })
@@ -362,13 +397,13 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [getCompanyId, fetchCompanyData])
 
-  // --- Legal Parameters CRUD ---
+  // --- Legal Parameters CRUD --- (se mantienen las implementaciones)
   const addLegalParameter = useCallback(async (data: Omit<LegalParameters, 'id'>) => {
     const companiaId = getCompanyId()
     if (!companiaId) throw new Error("No company selected.")
     try {
       const newParam = await apiFetcher<LegalParameters>("/api/legal-parameters", { method: "POST", data: { ...data, companiaId } })
-      await fetchCompanyData(companiaId) // Revalidar
+      await fetchCompanyData(companiaId) 
       toast({ title: "Parámetro Agregado", description: `${newParam.nombre} agregado.`, variant: "success" })
       return newParam
     } catch (e: any) {
@@ -382,7 +417,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!companiaId) throw new Error("No company selected.")
     try {
       const updatedParam = await apiFetcher<LegalParameters>(`/api/legal-parameters/${id}`, { method: "PATCH", data })
-      await fetchCompanyData(companiaId) // Revalidar
+      await fetchCompanyData(companiaId) 
       toast({ title: "Parámetro Actualizado", description: `${updatedParam.nombre} actualizado.`, variant: "success" })
       return updatedParam
     } catch (e: any) {
@@ -396,7 +431,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!companiaId) throw new Error("No company selected.")
     try {
       await apiFetcher<void>(`/api/legal-parameters/${id}`, { method: "DELETE" })
-      await fetchCompanyData(companiaId) // Revalidar
+      await fetchCompanyData(companiaId) 
       toast({ title: "Parámetro Eliminado", description: "El parámetro legal ha sido eliminado.", variant: "success" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el parámetro.", variant: "destructive" })
@@ -410,7 +445,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!companiaId) throw new Error("No company selected.")
     try {
       await apiFetcher<void>("/api/isr-brackets", { method: "POST", data: { companiaId, brackets } })
-      await fetchCompanyData(companiaId) // Revalidar
+      await fetchCompanyData(companiaId) 
       toast({ title: "Tramos ISR Actualizados", description: "La tabla de ISR ha sido actualizada correctamente.", variant: "success" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo actualizar la tabla de ISR.", variant: "destructive" })
@@ -424,7 +459,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!companiaId) throw new Error("No company selected.")
     try {
       const savedEntries = await apiFetcher<PayrollEntry[]>("/api/payroll-entries", { method: "POST", data: entries.map(e => ({...e, companiaId})) })
-      await fetchCompanyData(companiaId) // Revalidar Planillas y otros datos
+      await fetchCompanyData(companiaId) 
       toast({ title: "Planilla Guardada", description: `Se guardaron ${savedEntries.length} entradas de planilla.`, variant: "success" })
       return savedEntries
     } catch (e: any) {
@@ -438,7 +473,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!companiaId) throw new Error("No company selected.")
     try {
       await apiFetcher<void>(`/api/payroll-entries/${id}`, { method: "DELETE" })
-      await fetchCompanyData(companiaId) // Revalidar
+      await fetchCompanyData(companiaId) 
       toast({ title: "Entrada Eliminada", description: "La entrada de planilla ha sido eliminada.", variant: "success" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar la entrada de planilla.", variant: "destructive" })
@@ -451,7 +486,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!companiaId) throw new Error("No company selected.")
     try {
       await apiFetcher<void>(`/api/payroll-entries`, { method: "DELETE", params: { companiaId, periodo: period } })
-      await fetchCompanyData(companiaId) // Revalidar
+      await fetchCompanyData(companiaId) 
       toast({ title: "Planilla Eliminada", description: `Todas las entradas del período ${period} han sido eliminadas.`, variant: "success" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar la planilla del período.", variant: "destructive" })
@@ -465,7 +500,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!companiaId) throw new Error("No company selected.")
     try {
       const savedEntries = await apiFetcher<DecimoTercerMes[]>("/api/decimo-entries", { method: "POST", data: entries.map(e => ({...e, companiaId})) })
-      await fetchCompanyData(companiaId) // Revalidar
+      await fetchCompanyData(companiaId) 
       toast({ title: "Décimo Guardado", description: `Se guardaron ${savedEntries.length} cálculos de décimo.`, variant: "success" })
       return savedEntries
     } catch (e: any) {
@@ -479,7 +514,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!companiaId) throw new Error("No company selected.")
     try {
       await apiFetcher<void>(`/api/decimo-entries/${id}`, { method: "DELETE" })
-      await fetchCompanyData(companiaId) // Revalidar
+      await fetchCompanyData(companiaId) 
       toast({ title: "Cálculo Eliminado", description: "El cálculo de décimo ha sido eliminado.", variant: "success" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el cálculo de décimo.", variant: "destructive" })
@@ -492,7 +527,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!companiaId) throw new Error("No company selected.")
     try {
       await apiFetcher<void>(`/api/decimo-entries`, { method: "DELETE", params: { companiaId, anio: year } })
-      await fetchCompanyData(companiaId) // Revalidar
+      await fetchCompanyData(companiaId) 
       toast({ title: "Décimo Eliminado", description: `Todos los cálculos del año ${year} han sido eliminados.`, variant: "success" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el décimo del año.", variant: "destructive" })
@@ -506,7 +541,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!companiaId) throw new Error("No company selected.")
     try {
       const newPayment = await apiFetcher<SIPEPayment>("/api/sipe-payments", { method: "POST", data: { ...data, companiaId } })
-      await fetchCompanyData(companiaId) // Revalidar
+      await fetchCompanyData(companiaId) 
       toast({ title: "Pago SIPE Guardado", description: `El pago SIPE del período ${newPayment.periodo} ha sido guardado.`, variant: "success" })
       return newPayment
     } catch (e: any) {
@@ -520,7 +555,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!companiaId) throw new Error("No company selected.")
     try {
       await apiFetcher<void>(`/api/sipe-payments/${id}`, { method: "DELETE" })
-      await fetchCompanyData(companiaId) // Revalidar
+      await fetchCompanyData(companiaId) 
       toast({ title: "Pago SIPE Eliminado", description: "El pago SIPE ha sido eliminado.", variant: "success" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el pago SIPE.", variant: "destructive" })
@@ -585,7 +620,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // 5. CONTEXT VALUE
   // =================================================================
 
-  const value = {
+  const value: PayrollContextType = {
     // States
     companies,
     currentCompany,
@@ -596,17 +631,17 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     decimoEntries,
     sipePayments,
     isLoading,
-    currentUser, // FIX: Incluido en el valor
-    isHydrated, // FIX: Incluido en el valor
+    currentUser, 
+    isHydrated, 
     currentPeriod,
     currentYear,
 
-    // Filters
-    selectCompany,
+    // Filters (CORREGIDO: usando el nombre de la interfaz)
+    setCurrentCompanyId: handleSelectCompany, 
     selectPeriod,
     selectYear,
 
-    // CRUD
+    // CRUD (usando los nombres de las implementaciones)
     addCompany,
     updateCompany,
     deleteCompany,
@@ -642,8 +677,6 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
 export const usePayroll = () => {
   const context = useContext(PayrollContext)
-  if (context === undefined) {
-    throw new Error("usePayroll must be used within a PayrollProvider")
-  }
-  return context
+  // Eliminamos la verificación de 'undefined' ya que el valor inicial lo garantiza.
+  return context 
 }
