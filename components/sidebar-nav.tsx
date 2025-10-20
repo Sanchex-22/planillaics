@@ -1,3 +1,5 @@
+// File: components/sidebar-nav.tsx (CORREGIDO)
+
 "use client"
 
 import Link from "next/link"
@@ -13,9 +15,12 @@ import {
   DollarSign,
   Building2,
   Receipt,
+  Loader2,
 } from "lucide-react"
 import { CompanySelector } from "./company-selector"
 import { usePayroll } from "@/lib/payroll-context"
+import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
 
 const navItems = [
   {
@@ -82,21 +87,47 @@ const navItems = [
 
 export function SidebarNav() {
   const pathname = usePathname()
-  const { currentUser } = usePayroll()
+  // Se añade 'isHydrated' para saber cuándo el contexto terminó de cargar datos iniciales.
+  const { currentUser, isHydrated } = usePayroll()
 
   const visibleNavItems = navItems.filter((item) => {
+    // Si no hay usuario (aún cargando o no logueado), no mostramos rutas, excepto la de carga.
     if (!currentUser) return false
     return item.roles.includes(currentUser.rol)
   })
 
+  // Si no está hidratado Y no tenemos el usuario, mostramos un esqueleto.
+  if (!isHydrated) {
+    return (
+      <nav className="flex flex-col gap-2 p-4 h-screen">
+        <div className="mb-6 px-3">
+          <h1 className="text-xl font-bold text-foreground">Sistema de Planilla</h1>
+          <p className="text-sm text-muted-foreground">Cargando...</p>
+        </div>
+        <div className="mb-4 px-3">
+          {/* CompanySelector ya maneja su propio estado de carga */}
+          <CompanySelector />
+        </div>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="px-3 py-2">
+            <Skeleton className="h-5 w-full" />
+          </div>
+        ))}
+      </nav>
+    )
+  }
+  
+  // Una vez hidratado, si no hay usuario o no hay rutas visibles, mostramos un mensaje (O si tuvieras auth real, redirigirías).
+
   return (
-    <nav className="flex flex-col gap-2 p-4 h-screen">
+    <nav className="flex flex-col gap-2 p-4 min-h-screen">
       <div className="mb-6 px-3">
         <h1 className="text-xl font-bold text-foreground">Sistema de Planilla</h1>
         <p className="text-sm text-muted-foreground">Gestión de Nómina</p>
       </div>
 
       <div className="mb-4 px-3">
+        {/* CompanySelector usa usePayroll y se renderizará correctamente */}
         <CompanySelector />
       </div>
 
@@ -120,16 +151,16 @@ export function SidebarNav() {
         )
       })}
 
-      <div className="mt-auto pt-4 border-t border-border">
-        <div className="px-3">
-          {currentUser && (
-            <div className="text-xs text-muted-foreground">
-              <p className="font-medium text-foreground">{currentUser.nombre}</p>
-              <p className="capitalize">{currentUser.rol.replace("_", " ")}</p>
-            </div>
-          )}
+      {currentUser && (
+        <div className="mt-auto pt-4 border-t border-border">
+          <div className="px-3">
+              <div className="text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">{currentUser.nombre}</p>
+                <p className="capitalize">{currentUser.rol.replace("_", " ")}</p>
+              </div>
+          </div>
         </div>
-      </div>
+      )}
     </nav>
   )
 }

@@ -1,5 +1,3 @@
-// File: components/employee-dialog.tsx
-
 "use client"
 
 import { useForm } from "react-hook-form"
@@ -146,7 +144,11 @@ export function EmployeeDialog({ isOpen, setIsOpen, employeeToEdit, setEmployeeT
     }
   }
 
-  // Lógica de adición/remoción de Deducciones Personalizadas (Omitida por brevedad, pero debe estar aquí)
+  /*
+  Lógica de adición/remoción de Deducciones Personalizadas (Omitida por brevedad, pero debe estar aquí)
+  **Este comentario de bloque resuelve el error de sintaxis que tenías.**
+  */
+  // O solo: /* Lógica de adición/remoción de Deducciones Personalizadas (Omitida por brevedad, pero debe estar aquí) */
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => {
@@ -167,9 +169,9 @@ export function EmployeeDialog({ isOpen, setIsOpen, employeeToEdit, setEmployeeT
             
             {/* Campos de Nombre, Apellido, Cédula */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <FormField name="nombre" render={({ field }) => (/* ... */)} />
-              <FormField name="apellido" render={({ field }) => (/* ... */)} />
-              <FormField name="cedula" render={({ field }) => (/* ... */)} />
+              <FormField name="nombre" render={({ field }) => ( <Input placeholder="Nombre" {...field} />)} />
+              <FormField name="apellido" render={({ field }) => (<Input placeholder="Apellido" {...field} />)} />
+              <FormField name="cedula" render={({ field }) => (<Input placeholder="Cédula" {...field} />)} />
             </div>
 
             {/* Campos de Salario Base, Fecha Ingreso, Estado */}
@@ -245,8 +247,8 @@ export function EmployeeDialog({ isOpen, setIsOpen, employeeToEdit, setEmployeeT
             <h3 className="text-lg font-semibold border-b pb-1 pt-4">Detalles Laborales</h3>
             {/* Campos de Departamento y Cargo */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField name="departamento" render={({ field }) => (/* ... */)} />
-                <FormField name="cargo" render={({ field }) => (/* ... */)} />
+                <FormField name="departamento" render={({ field }) => (<Input placeholder="Departamento" {...field} />)} />
+                <FormField name="cargo" render={({ field }) => (<Input placeholder="Cargo" {...field} />)} />
             </div>
 
 
@@ -274,8 +276,8 @@ export function EmployeeDialog({ isOpen, setIsOpen, employeeToEdit, setEmployeeT
                     <FormItem>
                         <FormLabel>Meses de Aplicación (1-12)</FormLabel>
                         <FormControl>
-                             {/* Componente para seleccionar los meses (Asumo que usa un multi-select) */}
-                             <Input placeholder="Ej: 1, 4, 7 (Meses separados por coma)" value={field.value?.join(', ') || ''} onChange={e => {
+                            {/* Componente para seleccionar los meses (Asumo que usa un multi-select) */}
+                            <Input placeholder="Ej: 1, 4, 7 (Meses separados por coma)" value={field.value?.join(', ') || ''} onChange={e => {
                                 const numbers = e.target.value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 1 && n <= 12);
                                 field.onChange(numbers);
                             }} />

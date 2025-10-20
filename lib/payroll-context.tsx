@@ -1,4 +1,4 @@
-// File: lib/payroll-context.tsx (MODIFICADO COMPLETAMENTE)
+// File: lib/payroll-context.tsx (COMPLETO Y CORREGIDO)
 
 "use client"
 
@@ -12,10 +12,10 @@ import {
   PayrollEntry, 
   DecimoTercerMes, 
   SIPEPayment, 
-  PayrollCalculationResult 
+  User // Importado de ./types
 } from "./types"
 import { apiFetcher } from "./utils"
-import { PayrollCalculationInput } from "./server-calculations" // Importar el tipo de input
+import { PayrollCalculationInput, PayrollCalculationResult } from "./server-calculations" // Importar ambos tipos
 
 // =================================================================
 // 1. TYPING AND INITIAL STATE
@@ -34,6 +34,10 @@ interface PayrollContextType {
 
   // Loading States
   isLoading: boolean
+  
+  // FIX: Nuevos estados de autenticación y carga
+  currentUser: User | null 
+  isHydrated: boolean // Indica si la carga inicial de la sesión y la compañía ha terminado
 
   // Filters
   currentPeriod: string
@@ -98,6 +102,11 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [currentPeriod, setCurrentPeriod] = useState(new Date().toISOString().slice(0, 7)) // YYYY-MM
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear())
 
+  // FIX: Nuevos estados para Hydration/Auth
+  const [currentUser, setCurrentUser] = useState<User | null>(null) 
+  const [isHydrated, setIsHydrated] = useState(false) 
+
+
   const currentCompany = useMemo(
     () => companies.find((c) => c.id === currentCompanyId) || null,
     [companies, currentCompanyId],
@@ -116,16 +125,33 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return currentCompanyId
   }, [currentCompanyId])
 
+  // Mock function to simulate user session loading
+  const fetchCurrentUser = useCallback(async () => {
+    // --- MOCK DE USUARIO: Reemplaza con tu lógica real de autenticación ---
+    await new Promise(resolve => setTimeout(resolve, 50)); 
+    const mockUser: User = {
+        id: "user-mock-123",
+        nombre: "Usuario de Prueba",
+        email: "test@planilla.com",
+        rol: "super_admin", // Mantenemos 'super_admin' para ver todas las rutas en Sidebar
+        companias: ["default-company-id"],
+        activo: true,
+    };
+    setCurrentUser(mockUser);
+    return mockUser;
+  }, [])
+
 
   // =================================================================
   // Fetchers (Revalidation functions)
   // =================================================================
 
   const fetchAllCompanies = useCallback(async () => {
-    setIsLoading(true)
+    // No ponemos setIsLoading(true) aquí, ya que se maneja en initialize()
     try {
       const data = await apiFetcher<Company[]>("/api/companies")
       setCompanies(data)
+      return data;
     } catch (e) {
       console.error(e)
       toast({
@@ -133,8 +159,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
         description: "No se pudieron cargar las compañías.",
         variant: "destructive",
       })
-    } finally {
-      setIsLoading(false)
+      return [];
     }
   }, [])
 
@@ -170,19 +195,40 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [currentPeriod, currentYear]) // Dependencias para re-ejecutar si cambian los filtros de periodo
 
   // =================================================================
-  // Effects
+  // Effects CORREGIDOS: Inicialización y Hydration
   // =================================================================
   
-  // 1. Inicialización y selección de compañía guardada
+  // 1. Efecto de Inicialización y Autenticación (Se ejecuta una vez)
   useEffect(() => {
-    fetchAllCompanies()
-    const savedId = localStorage.getItem(localStorageKey)
-    if (savedId) {
-      setCurrentCompanyId(savedId)
-    }
-  }, [fetchAllCompanies])
+    async function initialize() {
+      // Step 1: Load User (simulated)
+      const user = await fetchCurrentUser();
 
-  // 2. Carga de datos de la compañía seleccionada
+      // Step 2: Load Companies
+      const companiesData = await fetchAllCompanies();
+      
+      // Step 3: Check saved company ID and set default
+      const savedId = localStorage.getItem(localStorageKey);
+      let initialCompanyId = savedId;
+      
+      if (!initialCompanyId && user && companiesData.length > 0) {
+          // Si no hay ID guardado, usa la primera compañía
+          initialCompanyId = companiesData[0].id;
+      }
+      
+      if (initialCompanyId) {
+          setCurrentCompanyId(initialCompanyId);
+          // fetchCompanyData será llamado por el useEffect de currentCompanyId
+      }
+
+      setIsHydrated(true); // Señalizar que la inicialización del cliente ha terminado
+    }
+
+    initialize();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchCurrentUser, fetchAllCompanies]);
+
+  // 2. Carga de datos de la compañía seleccionada (Mantenido)
   useEffect(() => {
     if (currentCompanyId) {
       fetchCompanyData(currentCompanyId)
@@ -199,7 +245,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [currentCompanyId, fetchCompanyData])
 
-  // 3. Revalidación de Planillas y Décimo al cambiar filtros
+  // 3. Revalidación de Planillas y Décimo al cambiar filtros (Mantenido)
   useEffect(() => {
     if (currentCompanyId) {
         // Revalidar planillas por mes
@@ -215,7 +261,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [currentCompanyId, currentPeriod, currentYear])
 
   // =================================================================
-  // 3. ACTION HANDLERS (CRUD API calls)
+  // 3. ACTION HANDLERS (CRUD API calls) - IMPLEMENTACIÓN COMPLETA
   // =================================================================
   
   const selectCompany = (companyId: string | null) => setCurrentCompanyId(companyId)
@@ -486,12 +532,10 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // 4. CALCULATION HANDLERS (API calls to business logic)
   // =================================================================
   
-  // NOTE: This now calls the dedicated API route /api/calculations/payroll
   const calculatePayrollApi = useCallback(async (input: Omit<PayrollCalculationInput, 'legalParameters' | 'isrBrackets'> & { currentLegalParameters: LegalParameters[], currentISRBrackets: ISRBracket[] }) => {
     const companiaId = getCompanyId()
     if (!companiaId) throw new Error("No company selected.")
     
-    // Preparar el input completo para la API
     const apiInput: PayrollCalculationInput = {
         ...input,
         legalParameters: input.currentLegalParameters,
@@ -507,7 +551,6 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [getCompanyId])
   
-  // NOTE: This now calls the dedicated API route /api/calculations/decimo
   const calculateDecimoApi = useCallback(async (employeeId: string, anio: number) => {
     const companiaId = getCompanyId()
     if (!companiaId) throw new Error("No company selected.")
@@ -523,7 +566,6 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [getCompanyId])
   
-  // NOTE: This now calls the dedicated API route /api/calculations/sipe
   const calculateSIPEApi = useCallback(async (periodo: string) => {
     const companiaId = getCompanyId()
     if (!companiaId) throw new Error("No company selected.")
@@ -554,6 +596,8 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     decimoEntries,
     sipePayments,
     isLoading,
+    currentUser, // FIX: Incluido en el valor
+    isHydrated, // FIX: Incluido en el valor
     currentPeriod,
     currentYear,
 
