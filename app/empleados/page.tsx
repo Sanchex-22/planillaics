@@ -1,10 +1,9 @@
-// File: app/empleados/page.tsx
-
 "use client"
 
 import { useState, useMemo } from "react"
 import { usePayroll } from "@/lib/payroll-context"
-import { PlusCircle, Trash2, Edit, FileInput } from "lucide-react"
+// FIX IMPORTS: Añadidos Eye y EyeOff
+import { PlusCircle, Trash2, Edit, FileInput, Eye, EyeOff } from "lucide-react" 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -22,8 +21,11 @@ import { EmployeeDialog } from "@/components/employee-dialog"
 export default function EmpleadosPage() {
   const { employees, currentCompany, deleteEmployee, clearAllEmployees, isLoading } = usePayroll()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false) // Estado para el diálogo de importación
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false) 
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null)
+  
+  // ESTADO CLAVE: Controla la visibilidad de los salarios
+  const [showSalaries, setShowSalaries] = useState(false) 
 
   const activeEmployees = useMemo(() => employees.filter(e => e.estado === 'activo'), [employees])
   const inactiveEmployees = useMemo(() => employees.filter(e => e.estado === 'inactivo'), [employees])
@@ -35,7 +37,6 @@ export default function EmpleadosPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      // FIX ASÍNCRONO: Usar await
       await deleteEmployee(id) 
     } catch (e) {
       console.error("Failed to delete employee:", e)
@@ -45,7 +46,6 @@ export default function EmpleadosPage() {
   const handleClearAll = async () => {
     if (!currentCompany) return
     try {
-      // FIX ASÍNCRONO: Usar await
       await clearAllEmployees()
     } catch (e) {
       console.error("Failed to clear all employees:", e)
@@ -66,7 +66,7 @@ export default function EmpleadosPage() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Gestión de Empleados</h1>
         <div className="space-x-2">
-            {/* BOTÓN DE IMPORTACIÓN AGREGADO */}
+            {/* BOTÓN DE IMPORTACIÓN */}
             <Button onClick={() => setIsImportDialogOpen(true)} variant="outline">
                 <FileInput className="mr-2 h-4 w-4" />
                 Importar Excel
@@ -86,7 +86,7 @@ export default function EmpleadosPage() {
         setEmployeeToEdit={setEditingEmployee}
       />
       
-      {/* DIÁLOGO DE IMPORTACIÓN AGREGADO */}
+      {/* DIÁLOGO DE IMPORTACIÓN */}
       <ExcelImportDialog 
         isOpen={isImportDialogOpen} 
         setIsOpen={setIsImportDialogOpen}
@@ -112,7 +112,25 @@ export default function EmpleadosPage() {
                     <TableHead>Cédula</TableHead>
                     <TableHead>Nombre Completo</TableHead>
                     <TableHead>Cargo/Depto</TableHead>
-                    <TableHead>Salario Base</TableHead>
+                    
+                    {/* CABECERA CORREGIDA: Salario Base con botón de visibilidad */}
+                    <TableHead>
+                        <div className="flex items-center space-x-1">
+                            <span>Salario Base</span>
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={() => setShowSalaries(prev => !prev)}
+                                className="h-6 w-6"
+                            >
+                                {showSalaries ? 
+                                    <Eye className="h-4 w-4 text-muted-foreground" /> : 
+                                    <EyeOff className="h-4 w-4 text-muted-foreground" />
+                                }
+                            </Button>
+                        </div>
+                    </TableHead>
+                    
                     <TableHead>Fecha Ingreso</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
@@ -124,7 +142,12 @@ export default function EmpleadosPage() {
                       <TableCell className="font-medium">{employee.cedula}</TableCell>
                       <TableCell>{employee.nombre} {employee.apellido}</TableCell>
                       <TableCell>{employee.cargo} ({employee.departamento})</TableCell>
-                      <TableCell>{formatCurrency(employee.salarioBase)}</TableCell>
+                      
+                      {/* CELDA CORREGIDA: Mostrar máscara o valor real */}
+                      <TableCell className="font-mono">
+                          {showSalaries ? formatCurrency(employee.salarioBase) : '***'}
+                      </TableCell>
+
                       <TableCell>{format(new Date(employee.fechaIngreso), 'dd/MM/yyyy')}</TableCell>
                       <TableCell>
                         <Badge variant={employee.estado === 'activo' ? "default" : "secondary"}>
