@@ -102,9 +102,6 @@ export default function ImpuestoSobreRentaPage() {
 
   return (
     <div className="flex min-h-screen bg-background">
-      <aside className="w-64 border-r border-border bg-card">
-        <SidebarNav />
-      </aside>
       <main className="flex-1 p-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-foreground">Impuesto Sobre la Renta (ISR)</h1>

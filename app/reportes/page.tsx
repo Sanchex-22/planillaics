@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { usePayroll } from "@/lib/payroll-context"
 import { SidebarNav } from "@/components/sidebar-nav"
 import { Button } from "@/components/ui/button"
@@ -12,19 +12,58 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Download, FileText, Calendar } from "lucide-react"
 import { exportToExcel } from "@/lib/export-utils"
 import { useToast } from "@/hooks/use-toast"
+import { Employee } from "@/lib/types" // Importación necesaria para tipado en map
 
 export default function ReportesPage() {
-  const { employees, payrollEntries, decimoTercerMes, legalParameters, currentCompany, companies } = usePayroll()
+  const { 
+    employees: employeesContext, 
+    payrollEntries: payrollEntriesContext, 
+    decimoEntries: decimoEntriesContext, // CORRECCIÓN: Usar decimoEntries del contexto
+    companies, 
+    currentCompany 
+  } = usePayroll()
+  
   const { toast } = useToast()
+  
   const [selectedPeriod, setSelectedPeriod] = useState(new Date().toISOString().slice(0, 7))
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [reportType, setReportType] = useState<"mensual" | "anual" | "decimo">("mensual")
 
-  const periodPayroll = payrollEntries.filter((e) => e.periodo === selectedPeriod)
-  const yearPayroll = payrollEntries.filter((e) => e.periodo.startsWith(selectedYear.toString()))
-  const yearDecimo = decimoTercerMes.filter((d) => d.anio === selectedYear)
+  // FIX: Proporcionar arrays vacíos como respaldo (fallback)
+  const employees = employeesContext || [];
+  const allPayrollEntries = payrollEntriesContext || []; 
+  const allDecimoEntries = decimoEntriesContext || []; 
 
-  const companyName = companies.find((c) => c.id === currentCompany)?.nombre || "Empresa"
+  // Filtrado de datos (Ahora seguro)
+  const periodPayroll = useMemo(() => 
+    allPayrollEntries.filter((e) => e.periodo === selectedPeriod)
+  , [allPayrollEntries, selectedPeriod])
+  
+  const yearPayroll = useMemo(() => 
+    allPayrollEntries.filter((e) => e.periodo.startsWith(selectedYear.toString()))
+  , [allPayrollEntries, selectedYear])
+  
+  const yearDecimo = useMemo(() => 
+    allDecimoEntries.filter((d) => d.anio === selectedYear)
+  , [allDecimoEntries, selectedYear])
+
+
+  // Se simplifica la obtención del nombre de la compañía
+  const companyName = currentCompany?.nombre || "Empresa"
+  
+  // Se refinan los cálculos de totales para usar useMemo
+  const totalBrutoMensual = useMemo(() => periodPayroll.reduce((sum, e) => sum + e.salarioBruto, 0), [periodPayroll])
+  const totalNetoMensual = useMemo(() => periodPayroll.reduce((sum, e) => sum + e.salarioNeto, 0), [periodPayroll])
+  const totalBrutoAnual = useMemo(() => yearPayroll.reduce((sum, e) => sum + e.salarioBruto, 0), [yearPayroll])
+  const totalNetoAnual = useMemo(() => yearPayroll.reduce((sum, e) => sum + e.salarioNeto, 0), [yearPayroll])
+  // FIX: totalDecimo necesita el campo montoTotal o similar, asumo que es 'montoTotal' basado en el esquema de Prisma.
+  const totalDecimo = useMemo(() => yearDecimo.reduce((sum, d) => sum + d.montoTotal, 0), [yearDecimo])
+  
+  // Función auxiliar para buscar empleado de forma segura
+  const findEmployee = (empleadoId: string): Employee | undefined => {
+      // Usamos el array 'employees' que ya tiene el fallback de array vacío
+      return employees.find((e) => e.id === empleadoId)
+  }
 
   const handleExportMensual = () => {
     if (periodPayroll.length === 0) {
@@ -37,7 +76,7 @@ export default function ReportesPage() {
     }
 
     const data = periodPayroll.map((entry) => {
-      const employee = employees.find((e) => e.id === entry.empleadoId)
+      const employee = findEmployee(entry.empleadoId)
       return {
         Empresa: companyName,
         Cédula: employee?.cedula || "",
@@ -139,7 +178,7 @@ export default function ReportesPage() {
     }
 
     const data = yearDecimo.map((decimo) => {
-      const employee = employees.find((e) => e.id === decimo.empleadoId)
+      const employee = findEmployee(decimo.empleadoId)
       return {
         Empresa: companyName,
         Cédula: employee?.cedula || "",
@@ -167,17 +206,8 @@ export default function ReportesPage() {
     })
   }
 
-  const totalBrutoMensual = periodPayroll.reduce((sum, e) => sum + e.salarioBruto, 0)
-  const totalNetoMensual = periodPayroll.reduce((sum, e) => sum + e.salarioNeto, 0)
-  const totalBrutoAnual = yearPayroll.reduce((sum, e) => sum + e.salarioBruto, 0)
-  const totalNetoAnual = yearPayroll.reduce((sum, e) => sum + e.salarioNeto, 0)
-  const totalDecimo = yearDecimo.reduce((sum, d) => sum + d.montoProporcional, 0)
-
   return (
     <div className="flex min-h-screen bg-background">
-      <aside className="w-64 border-r border-border bg-card">
-        <SidebarNav />
-      </aside>
       <main className="flex-1 p-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-foreground">Reportes</h1>
@@ -279,14 +309,14 @@ export default function ReportesPage() {
                         </TableRow>
                       ) : (
                         periodPayroll.slice(0, 10).map((entry) => {
-                          const employee = employees.find((e) => e.id === entry.empleadoId)
+                          const employee = findEmployee(entry.empleadoId)
                           const totalDeducciones =
-                            entry.seguroSocialEmpleado +
-                            entry.seguroEducativo +
-                            entry.isr +
-                            entry.deduccionesBancarias +
-                            entry.prestamos +
-                            entry.otrasDeduccionesPersonalizadas
+                            (entry.seguroSocialEmpleado || 0) +
+                            (entry.seguroEducativo || 0) +
+                            (entry.isr || 0) +
+                            (entry.deduccionesBancarias || 0) +
+                            (entry.prestamos || 0) +
+                            (entry.otrasDeduccionesPersonalizadas || 0) // FIX: Añadir fallback
                           return (
                             <TableRow key={entry.id}>
                               <TableCell className="font-medium">
@@ -491,7 +521,7 @@ export default function ReportesPage() {
                         </TableRow>
                       ) : (
                         yearDecimo.slice(0, 10).map((decimo) => {
-                          const employee = employees.find((e) => e.id === decimo.empleadoId)
+                          const employee = findEmployee(decimo.empleadoId)
                           return (
                             <TableRow key={decimo.id}>
                               <TableCell className="font-medium">

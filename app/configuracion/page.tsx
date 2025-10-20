@@ -12,9 +12,6 @@ export default function ConfiguracionPage() {
   if (!isHydrated) {
     return (
       <div className="flex min-h-screen bg-background">
-        <aside className="w-64 border-r border-border bg-card">
-          <SidebarNav />
-        </aside>
         <main className="flex-1 p-8">
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-foreground">Configuración</h1>
@@ -28,9 +25,6 @@ export default function ConfiguracionPage() {
   if (currentUser?.rol !== "super_admin") {
     return (
       <div className="flex min-h-screen bg-background">
-        <aside className="w-64 border-r border-border bg-card">
-          <SidebarNav />
-        </aside>
         <main className="flex-1 p-8">
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-foreground">Acceso Denegado</h1>
@@ -43,9 +37,6 @@ export default function ConfiguracionPage() {
 
   return (
     <div className="flex min-h-screen bg-background">
-      <aside className="w-64 border-r border-border bg-card">
-        <SidebarNav />
-      </aside>
       <main className="flex-1 p-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-foreground">Configuración del Sistema</h1>

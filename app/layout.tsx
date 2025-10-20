@@ -7,6 +7,7 @@ import "./globals.css"
 import { PayrollProvider } from "@/lib/payroll-context"
 import { Suspense } from "react"
 import { Toaster } from "@/components/ui/toaster"
+import { SidebarNav } from "@/components/sidebar-nav"
 
 export const metadata: Metadata = {
   title: "Sistema de Planilla - Panamá",
@@ -23,7 +24,14 @@ export default function RootLayout({
     <html lang="es">
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
         <Suspense fallback={<div>Loading...</div>}>
-          <PayrollProvider>{children}</PayrollProvider>
+          <PayrollProvider>
+            <div className="flex min-h-screen bg-background">
+              <aside className="w-64 border-r border-border bg-card">
+                <SidebarNav />
+              </aside>
+              <main className="flex-1 p-8">{children}</main>
+            </div>
+          </PayrollProvider>
         </Suspense>
         <Toaster />
         <Analytics />
