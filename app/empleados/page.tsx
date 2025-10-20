@@ -14,17 +14,15 @@ import { Employee } from "@/lib/types"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Separator } from "@/components/ui/separator"
 import { formatCurrency } from "@/lib/utils"
-// FIX IMPORT 1: Usar Named Imports
-import { EmployeeDialog } from "@/components/employee-dialog" 
-// FIX IMPORT 2: Usar Named Imports (asumo que ExcelImportDialog también es un named export)
 import { ExcelImportDialog } from "@/components/excel-import-dialog" 
 import { toast } from "@/components/ui/use-toast"
+import { EmployeeDialog } from "@/components/employee-dialog"
 
 
 export default function EmpleadosPage() {
   const { employees, currentCompany, deleteEmployee, clearAllEmployees, isLoading } = usePayroll()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false) // Estado para el diálogo de importación
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null)
 
   const activeEmployees = useMemo(() => employees.filter(e => e.estado === 'activo'), [employees])
@@ -68,6 +66,7 @@ export default function EmpleadosPage() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Gestión de Empleados</h1>
         <div className="space-x-2">
+            {/* BOTÓN DE IMPORTACIÓN AGREGADO */}
             <Button onClick={() => setIsImportDialogOpen(true)} variant="outline">
                 <FileInput className="mr-2 h-4 w-4" />
                 Importar Excel
@@ -87,6 +86,7 @@ export default function EmpleadosPage() {
         setEmployeeToEdit={setEditingEmployee}
       />
       
+      {/* DIÁLOGO DE IMPORTACIÓN AGREGADO */}
       <ExcelImportDialog 
         isOpen={isImportDialogOpen} 
         setIsOpen={setIsImportDialogOpen}

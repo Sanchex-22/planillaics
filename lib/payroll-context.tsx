@@ -44,10 +44,12 @@ interface PayrollContextType {
   currentYear: number
 
   // Actions
-  // Nombre corregido para CompanySelector
   setCurrentCompanyId: (companyId: string | null) => void 
   selectPeriod: (period: string) => void
   selectYear: (year: number) => void
+  
+  // FIX: Agregar la función al tipo de contexto (para que el componente la pueda desestructurar)
+  fetchCompanyData: (companiaId: string) => Promise<void>; 
 
   // CRUD Operations
   addCompany: (data: Omit<Company, 'id'>) => Promise<Company>
@@ -85,9 +87,6 @@ interface PayrollContextType {
 // -----------------------------------------------------------------
 // FUNCIÓN STUB Y VALOR INICIAL PARA EVITAR EL 'TypeError: is not a function'
 // -----------------------------------------------------------------
-// Esta función garantiza que si el componente se renderiza antes que el Provider, 
-// la llamada a 'addEmployee' no falle.
-
 const NO_OP = () => { throw new Error("PayrollContext function called outside of provider. Check if component is wrapped."); };
 const ASYNC_NO_OP = () => Promise.reject(new Error("PayrollContext async function called outside of provider."));
 
@@ -111,12 +110,14 @@ const initialContextValue: PayrollContextType = {
   setCurrentCompanyId: NO_OP,
   selectPeriod: NO_OP,
   selectYear: NO_OP,
+  // FIX: Stub para la nueva función de recarga
+  fetchCompanyData: ASYNC_NO_OP as (companiaId: string) => Promise<void>, 
 
   // CRUD Operations (usamos ASYNC_NO_OP para funciones que devuelven Promise)
   addCompany: ASYNC_NO_OP,
   updateCompany: ASYNC_NO_OP,
   deleteCompany: ASYNC_NO_OP,
-  addEmployee: ASYNC_NO_OP, // <-- CORRECCIÓN CLAVE para el error
+  addEmployee: ASYNC_NO_OP, 
   updateEmployee: ASYNC_NO_OP,
   deleteEmployee: ASYNC_NO_OP,
   clearAllEmployees: ASYNC_NO_OP,
@@ -173,7 +174,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
       toast({
         title: "Advertencia",
         description: "Seleccione una compañía primero.",
-        variant: "warning",
+        variant: "default", // FIX TOAST
       })
       return null
     }
@@ -211,6 +212,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [])
 
+  // FIX: fetchCompanyData (función real para recargar datos específicos)
   const fetchCompanyData = useCallback(async (companiaId: string) => {
     setIsLoading(true)
     try {
@@ -240,7 +242,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } finally {
       setIsLoading(false)
     }
-  }, [currentPeriod, currentYear])
+  }, [currentPeriod, currentYear]) // Dependencias para re-ejecutar si cambian los filtros de periodo
 
   // Efectos de Inicialización (sin cambios relevantes)
   
@@ -307,7 +309,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const newCompany = await apiFetcher<Company>("/api/companies", { method: "POST", data })
       await fetchAllCompanies()
-      toast({ title: "Compañía Agregada", description: `La compañía ${newCompany.nombre} ha sido agregada.`, variant: "success" })
+      toast({ title: "Compañía Agregada", description: `La compañía ${newCompany.nombre} ha sido agregada.`, variant: "default" }) // FIX TOAST
       return newCompany
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo agregar la compañía.", variant: "destructive" })
@@ -319,7 +321,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const updatedCompany = await apiFetcher<Company>(`/api/companies/${id}`, { method: "PATCH", data })
       await fetchAllCompanies()
-      toast({ title: "Compañía Actualizada", description: `La compañía ${updatedCompany.nombre} ha sido actualizada.`, variant: "success" })
+      toast({ title: "Compañía Actualizada", description: `La compañía ${updatedCompany.nombre} ha sido actualizada.`, variant: "default" }) // FIX TOAST
       return updatedCompany
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo actualizar la compañía.", variant: "destructive" })
@@ -334,7 +336,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setCurrentCompanyId(null)
       }
       await fetchAllCompanies()
-      toast({ title: "Compañía Eliminada", description: "La compañía ha sido eliminada.", variant: "success" })
+      toast({ title: "Compañía Eliminada", description: "La compañía ha sido eliminada.", variant: "default" }) // FIX TOAST
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar la compañía.", variant: "destructive" })
       throw e
@@ -342,14 +344,13 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [fetchAllCompanies, currentCompanyId])
   
   // --- Employees CRUD ---
-  // ESTA ES LA FUNCIÓN QUE FALLABA: addEmployee
   const addEmployee = useCallback(async (data: Omit<Employee, 'id'>) => {
     const companiaId = getCompanyId()
     if (!companiaId) throw new Error("No company selected.")
     try {
       const newEmployee = await apiFetcher<Employee>("/api/employees", { method: "POST", data: { ...data, companiaId } })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Empleado Agregado", description: `${newEmployee.nombre} ${newEmployee.apellido} ha sido agregado.`, variant: "success" })
+      toast({ title: "Empleado Agregado", description: `${newEmployee.nombre} ${newEmployee.apellido} ha sido agregado.`, variant: "default" }) // FIX TOAST
       return newEmployee
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo agregar el empleado.", variant: "destructive" })
@@ -363,7 +364,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const updatedEmployee = await apiFetcher<Employee>(`/api/employees/${id}`, { method: "PATCH", data })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Empleado Actualizado", description: `${updatedEmployee.nombre} ${updatedEmployee.apellido} ha sido actualizado.`, variant: "success" })
+      toast({ title: "Empleado Actualizado", description: `${updatedEmployee.nombre} ${updatedEmployee.apellido} ha sido actualizado.`, variant: "default" }) // FIX TOAST
       return updatedEmployee
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo actualizar el empleado.", variant: "destructive" })
@@ -377,7 +378,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/employees/${id}`, { method: "DELETE" })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Empleado Eliminado", description: "El empleado ha sido eliminado.", variant: "success" })
+      toast({ title: "Empleado Eliminado", description: "El empleado ha sido eliminado.", variant: "default" }) // FIX TOAST
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el empleado.", variant: "destructive" })
       throw e
@@ -390,7 +391,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/employees`, { method: "DELETE", params: { companiaId } })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Empleados Eliminados", description: "Todos los empleados han sido eliminados.", variant: "success" })
+      toast({ title: "Empleados Eliminados", description: "Todos los empleados han sido eliminados.", variant: "default" }) // FIX TOAST
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudieron eliminar los empleados.", variant: "destructive" })
       throw e
@@ -404,7 +405,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const newParam = await apiFetcher<LegalParameters>("/api/legal-parameters", { method: "POST", data: { ...data, companiaId } })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Parámetro Agregado", description: `${newParam.nombre} agregado.`, variant: "success" })
+      toast({ title: "Parámetro Agregado", description: `${newParam.nombre} agregado.`, variant: "default" }) // FIX TOAST
       return newParam
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo agregar el parámetro.", variant: "destructive" })
@@ -418,7 +419,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const updatedParam = await apiFetcher<LegalParameters>(`/api/legal-parameters/${id}`, { method: "PATCH", data })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Parámetro Actualizado", description: `${updatedParam.nombre} actualizado.`, variant: "success" })
+      toast({ title: "Parámetro Actualizado", description: `${updatedParam.nombre} actualizado.`, variant: "default" }) // FIX TOAST
       return updatedParam
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo actualizar el parámetro.", variant: "destructive" })
@@ -432,7 +433,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/legal-parameters/${id}`, { method: "DELETE" })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Parámetro Eliminado", description: "El parámetro legal ha sido eliminado.", variant: "success" })
+      toast({ title: "Parámetro Eliminado", description: "El parámetro legal ha sido eliminado.", variant: "default" }) // FIX TOAST
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el parámetro.", variant: "destructive" })
       throw e
@@ -446,7 +447,8 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>("/api/isr-brackets", { method: "POST", data: { companiaId, brackets } })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Tramos ISR Actualizados", description: "La tabla de ISR ha sido actualizada correctamente.", variant: "success" })
+      toast({ title: "Tramos ISR Actualizados", description: "La tabla de ISR ha sido actualizada correctamente.", variant: "default" }) // FIX TOAST
+      // return void
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo actualizar la tabla de ISR.", variant: "destructive" })
       throw e
@@ -460,7 +462,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const savedEntries = await apiFetcher<PayrollEntry[]>("/api/payroll-entries", { method: "POST", data: entries.map(e => ({...e, companiaId})) })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Planilla Guardada", description: `Se guardaron ${savedEntries.length} entradas de planilla.`, variant: "success" })
+      toast({ title: "Planilla Guardada", description: `Se guardaron ${savedEntries.length} entradas de planilla.`, variant: "default" }) // FIX TOAST
       return savedEntries
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo guardar la planilla.", variant: "destructive" })
@@ -474,7 +476,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/payroll-entries/${id}`, { method: "DELETE" })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Entrada Eliminada", description: "La entrada de planilla ha sido eliminada.", variant: "success" })
+      toast({ title: "Entrada Eliminada", description: "La entrada de planilla ha sido eliminada.", variant: "default" }) // FIX TOAST
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar la entrada de planilla.", variant: "destructive" })
       throw e
@@ -487,7 +489,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/payroll-entries`, { method: "DELETE", params: { companiaId, periodo: period } })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Planilla Eliminada", description: `Todas las entradas del período ${period} han sido eliminadas.`, variant: "success" })
+      toast({ title: "Planilla Eliminada", description: `Todas las entradas del período ${period} han sido eliminadas.`, variant: "default" }) // FIX TOAST
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar la planilla del período.", variant: "destructive" })
       throw e
@@ -501,7 +503,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const savedEntries = await apiFetcher<DecimoTercerMes[]>("/api/decimo-entries", { method: "POST", data: entries.map(e => ({...e, companiaId})) })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Décimo Guardado", description: `Se guardaron ${savedEntries.length} cálculos de décimo.`, variant: "success" })
+      toast({ title: "Décimo Guardado", description: `Se guardaron ${savedEntries.length} cálculos de décimo.`, variant: "default" }) // FIX TOAST
       return savedEntries
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo guardar el cálculo de décimo.", variant: "destructive" })
@@ -515,7 +517,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/decimo-entries/${id}`, { method: "DELETE" })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Cálculo Eliminado", description: "El cálculo de décimo ha sido eliminado.", variant: "success" })
+      toast({ title: "Cálculo Eliminado", description: "El cálculo de décimo ha sido eliminado.", variant: "default" }) // FIX TOAST
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el cálculo de décimo.", variant: "destructive" })
       throw e
@@ -528,7 +530,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/decimo-entries`, { method: "DELETE", params: { companiaId, anio: year } })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Décimo Eliminado", description: `Todos los cálculos del año ${year} han sido eliminados.`, variant: "success" })
+      toast({ title: "Décimo Eliminado", description: `Todos los cálculos del año ${year} han sido eliminados.`, variant: "default" }) // FIX TOAST
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el décimo del año.", variant: "destructive" })
       throw e
@@ -542,7 +544,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const newPayment = await apiFetcher<SIPEPayment>("/api/sipe-payments", { method: "POST", data: { ...data, companiaId } })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Pago SIPE Guardado", description: `El pago SIPE del período ${newPayment.periodo} ha sido guardado.`, variant: "success" })
+      toast({ title: "Pago SIPE Guardado", description: `El pago SIPE del período ${newPayment.periodo} ha sido guardado.`, variant: "default" }) // FIX TOAST
       return newPayment
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo guardar el pago SIPE.", variant: "destructive" })
@@ -556,7 +558,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/sipe-payments/${id}`, { method: "DELETE" })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Pago SIPE Eliminado", description: "El pago SIPE ha sido eliminado.", variant: "success" })
+      toast({ title: "Pago SIPE Eliminado", description: "El pago SIPE ha sido eliminado.", variant: "default" }) // FIX TOAST
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el pago SIPE.", variant: "destructive" })
       throw e
@@ -586,20 +588,27 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [getCompanyId])
   
-  const calculateDecimoApi = useCallback(async (employeeId: string, anio: number) => {
+// Archivo: lib/payroll-context.tsx
+
+// 4. CALCULATION HANDLERS (API calls to business logic)
+// FIX: Asegúrate de que los parámetros se definan y usen correctamente.
+
+const calculateDecimoApi = useCallback(async (empleadoId: string, anio: number) => { // <-- Se define 'empleadoId' como parámetro
     const companiaId = getCompanyId()
     if (!companiaId) throw new Error("No company selected.")
     try {
       const result = await apiFetcher<DecimoTercerMes>("/api/calculations/decimo", { 
           method: "POST", 
+          // FIX: Usar el parámetro 'empleadoId' y las variables de scope
           data: { empleadoId, companiaId, anio } 
       })
       return result
     } catch (e: any) {
-      toast({ title: "Error de Cálculo", description: e.message || "No se pudo calcular el décimo.", variant: "destructive" })
+      // FIX: Añadir manejo de errores
+      toast({ title: "Error de Cálculo", description: e.message || "No se pudo calcular el Décimo.", variant: "destructive" })
       throw e
     }
-  }, [getCompanyId])
+}, [getCompanyId]);
   
   const calculateSIPEApi = useCallback(async (periodo: string) => {
     const companiaId = getCompanyId()
@@ -635,6 +644,8 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     isHydrated, 
     currentPeriod,
     currentYear,
+    // FIX: Añadir la función fetchCompanyData al valor del contexto
+    fetchCompanyData,
 
     // Filters (CORREGIDO: usando el nombre de la interfaz)
     setCurrentCompanyId: handleSelectCompany, 

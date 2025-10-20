@@ -1,19 +1,21 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { usePayroll } from "@/lib/payroll-context"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Upload, Download, CheckCircle2, XCircle, AlertCircle } from "lucide-react"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import {Download, CheckCircle2, XCircle, AlertCircle, FileInput } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Progress } from "@/components/ui/progress"
 import * as XLSX from "xlsx"
+import { toast } from "./ui/use-toast"
+import { Spinner } from "./ui/spinner"
+import { importEmployeesFromSheet } from "@/lib/import-utils"
 
 interface ExcelImportDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
+  isOpen: boolean
+  setIsOpen: (isOpen: boolean) => void
 }
 
 interface ImportResult {
@@ -22,27 +24,27 @@ interface ImportResult {
   errors: string[]
 }
 
-export function ExcelImportDialog({ open, onOpenChange }: ExcelImportDialogProps) {
-  const { addEmployee, currentCompanyId } = usePayroll()
+export function ExcelImportDialog({ isOpen, setIsOpen }: ExcelImportDialogProps) {
+  const { currentCompany, fetchCompanyData } = usePayroll()
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<ImportResult | null>(null)
   const [progress, setProgress] = useState(0)
 
   const downloadTemplate = () => {
-    const template = [
-      ["cedula", "nombre", "apellido", "salario", "departamento", "cargo"],
-      ["8-123-4567", "Juan", "Pérez", "1500", "Ventas", "Vendedor"],
-      ["8-234-5678", "María", "González", "2000", "Administración", "Contador"],
-    ]
+    const templateHeaders = [
+      "cedula", "nombre", "apellido", "fechaIngreso", "salarioBase", "departamento", "cargo", "email", "telefono", "direccion"
+    ];
+    
+    const templateData = [
+        ["8-800-800", "Juan", "Pérez", "2024-01-15", 2500, "Ingeniería", "Desarrollador", "juan.perez@test.com", "6600-1100", "Ciudad de Panamá"],
+        ["9-123-456", "Maria", "Gómez", "2023-05-01", 1200, "Ventas", "Ejecutivo", "maria.gomez@test.com", "", "Chiriquí"],
+    ];
 
-    const ws = XLSX.utils.aoa_to_sheet(template)
+    const ws = XLSX.utils.aoa_to_sheet([templateHeaders, ...templateData])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Empleados")
 
-    // Generate file data as array buffer
     const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" })
-
-    // Create blob and download link
     const blob = new Blob([wbout], { type: "application/octet-stream" })
     const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
@@ -55,15 +57,19 @@ export function ExcelImportDialog({ open, onOpenChange }: ExcelImportDialogProps
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    // FIX: Prevenir el comportamiento por defecto del navegador (que puede ser la recarga)
+    e.preventDefault(); 
+    
     const file = e.target.files?.[0]
     if (!file) return
 
-    if (!currentCompanyId) {
-      setResult({
-        success: 0,
-        failed: 0,
-        errors: ["Debe seleccionar una empresa primero"],
+    if (!currentCompany?.id) {
+      toast({
+        title: "Error de Importación",
+        description: "Debe seleccionar una empresa activa primero.",
+        variant: "destructive",
       })
+      e.target.value = ""
       return
     }
 
@@ -75,59 +81,29 @@ export function ExcelImportDialog({ open, onOpenChange }: ExcelImportDialogProps
       const data = await file.arrayBuffer()
       const workbook = XLSX.read(data)
       const worksheet = workbook.Sheets[workbook.SheetNames[0]]
-      const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[]
+      
+      // Convertir a JSON con encabezados en minúsculas (sin headers mapeados, los mapeamos después)
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as string[][]
 
-      const errors: string[] = []
-      let success = 0
-      let failed = 0
+      // Usar la función de utilidad para procesar y enviar al servidor
+      const importResponse = await importEmployeesFromSheet(jsonData, currentCompany.id, setProgress);
 
-      for (let i = 0; i < jsonData.length; i++) {
-        const row = jsonData[i]
-        setProgress(((i + 1) / jsonData.length) * 100)
-
-        try {
-          // Validate required fields
-          if (!row.cedula || !row.nombre || !row.salario) {
-            errors.push(`Fila ${i + 2}: Faltan campos requeridos (cédula, nombre, salario)`)
-            failed++
-            continue
-          }
-
-          // Parse salary
-          const salario = Number.parseFloat(String(row.salario).replace(/[^0-9.-]/g, ""))
-          if (Number.isNaN(salario) || salario <= 0) {
-            errors.push(`Fila ${i + 2}: Salario inválido (${row.salario})`)
-            failed++
-            continue
-          }
-
-          // Create employee
-          const newEmployee = {
-            companiaId: currentCompanyId,
-            cedula: String(row.cedula).trim(),
-            nombre: String(row.nombre).trim(),
-            apellido: row.apellido ? String(row.apellido).trim() : "",
-            fechaIngreso: new Date().toISOString().split("T")[0],
-            salarioBase: salario,
-            departamento: row.departamento ? String(row.departamento).trim() : "General",
-            cargo: row.cargo ? String(row.cargo).trim() : "Empleado",
-            estado: "activo" as const,
-          }
-
-          addEmployee(newEmployee)
-          success++
-        } catch (error) {
-          errors.push(`Fila ${i + 2}: Error al procesar - ${error}`)
-          failed++
-        }
+      setResult({ 
+        success: importResponse.successfulImports.length, 
+        failed: importResponse.failedImports.length, 
+        errors: importResponse.failedImports.map(f => `Fila ${f.rowNumber}: ${f.error}`),
+      })
+      
+      // Si tuvo éxito, recargar los datos del contexto
+      if (importResponse.successfulImports.length > 0) {
+          await fetchCompanyData(currentCompany.id);
       }
 
-      setResult({ success, failed, errors })
-    } catch (error) {
+    } catch (error: any) {
       setResult({
         success: 0,
         failed: 0,
-        errors: [`Error al leer el archivo: ${error}`],
+        errors: [`Error al leer el archivo: ${error.message || String(error)}`],
       })
     } finally {
       setImporting(false)
@@ -138,17 +114,17 @@ export function ExcelImportDialog({ open, onOpenChange }: ExcelImportDialogProps
   const handleClose = () => {
     setResult(null)
     setProgress(0)
-    onOpenChange(false)
+    setIsOpen(false)
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Importar Empleados desde Excel</DialogTitle>
           <DialogDescription>
-            Suba un archivo Excel con la información de los empleados. Descargue la plantilla para ver el formato
-            correcto.
+            Suba un archivo Excel con la información de los empleados. La importación validará los campos y actualizará
+            los registros existentes por cédula.
           </DialogDescription>
         </DialogHeader>
 
@@ -157,7 +133,7 @@ export function ExcelImportDialog({ open, onOpenChange }: ExcelImportDialogProps
           <div className="flex items-center justify-between rounded-lg border border-border bg-muted/50 p-4">
             <div>
               <p className="font-medium">Plantilla de Excel</p>
-              <p className="text-sm text-muted-foreground">Descargue la plantilla con el formato correcto</p>
+              <p className="text-sm text-muted-foreground">Descargue la plantilla con el formato requerido.</p>
             </div>
             <Button variant="outline" onClick={downloadTemplate}>
               <Download className="mr-2 h-4 w-4" />
@@ -171,9 +147,13 @@ export function ExcelImportDialog({ open, onOpenChange }: ExcelImportDialogProps
               htmlFor="excel-upload"
               className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/50 p-8 transition-colors hover:bg-muted"
             >
-              <Upload className="mb-2 h-8 w-8 text-muted-foreground" />
-              <p className="text-sm font-medium">Haga clic para seleccionar un archivo</p>
-              <p className="text-xs text-muted-foreground">o arrastre y suelte aquí</p>
+              {importing ? (
+                <Spinner className="mb-2 h-8 w-8 text-primary" />
+              ) : (
+                <FileInput className="mb-2 h-8 w-8 text-muted-foreground" />
+              )}
+              
+              <p className="text-sm font-medium">Haga clic para seleccionar el archivo</p>
               <p className="mt-2 text-xs text-muted-foreground">Formatos: .xlsx, .xls</p>
             </label>
             <input
@@ -190,7 +170,7 @@ export function ExcelImportDialog({ open, onOpenChange }: ExcelImportDialogProps
           {importing && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span>Importando empleados...</span>
+                <span>Procesando...</span>
                 <span>{Math.round(progress)}%</span>
               </div>
               <Progress value={progress} />
@@ -221,10 +201,10 @@ export function ExcelImportDialog({ open, onOpenChange }: ExcelImportDialogProps
               )}
 
               {result.errors.length > 0 && (
-                <Alert>
-                  <AlertCircle className="h-4 w-4" />
+                <Alert variant="default" className="border-yellow-500/50 bg-yellow-500/10">
+                  <AlertCircle className="h-4 w-4 text-yellow-500" />
                   <AlertDescription>
-                    <p className="mb-2 font-medium">Errores encontrados:</p>
+                    <p className="mb-2 font-medium">Errores encontrados ({result.errors.length}):</p>
                     <ul className="max-h-40 space-y-1 overflow-y-auto text-xs">
                       {result.errors.map((error, i) => (
                         <li key={i} className="text-muted-foreground">
@@ -237,32 +217,12 @@ export function ExcelImportDialog({ open, onOpenChange }: ExcelImportDialogProps
               )}
             </div>
           )}
-
-          {/* Instructions */}
-          <div className="rounded-lg border border-border bg-muted/50 p-4">
-            <p className="mb-2 text-sm font-medium">Formato del archivo:</p>
-            <ul className="space-y-1 text-xs text-muted-foreground">
-              <li>
-                • <strong>cedula</strong>: Número de cédula del empleado (requerido)
-              </li>
-              <li>
-                • <strong>nombre</strong>: Nombre del empleado (requerido)
-              </li>
-              <li>
-                • <strong>apellido</strong>: Apellido del empleado (opcional)
-              </li>
-              <li>
-                • <strong>salario</strong>: Salario base mensual (requerido)
-              </li>
-              <li>
-                • <strong>departamento</strong>: Departamento (opcional, por defecto: General)
-              </li>
-              <li>
-                • <strong>cargo</strong>: Cargo o puesto (opcional, por defecto: Empleado)
-              </li>
-            </ul>
-          </div>
         </div>
+        <DialogFooter>
+            <DialogClose asChild>
+                <Button variant="outline" onClick={handleClose}>Cerrar</Button>
+            </DialogClose>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
