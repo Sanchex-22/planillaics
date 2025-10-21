@@ -1,9 +1,9 @@
 // File: app/api/employees/[id]/route.ts
 
-import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { EmployeeDeduction } from '@/lib/types'
+import { db } from '@/lib/db/db'
 
 // PATCH /api/employees/[id] - Actualizar un empleado
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {

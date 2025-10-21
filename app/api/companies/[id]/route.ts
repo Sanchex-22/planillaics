@@ -1,6 +1,7 @@
 // File: app/api/companies/[id]/route.ts
 
-import { db } from '@/lib/db'
+
+import { db } from '@/lib/db/db'
 import { NextResponse } from 'next/server'
 
 // GET /api/companies/[id] - Obtener una empresa
