@@ -57,6 +57,11 @@ export interface EmployeeDeduction {
 }
 
 export interface LegalParameters {
+  fondoCesantiaRate: any
+  riesgoProfesionalRate: any
+  seguroEducativoEmpleadoRate: any
+  seguroSocialEmpleadoRate: any
+  seguroSocialEmpleadorRate: any
   id: string
   companiaId: string
   nombre: string

@@ -1,5 +1,6 @@
 import type { Employee, LegalParameters, ISRBracket, PayrollEntry } from "./types"
 
+// La interfaz PayrollCalculationInput se mantiene igual
 export interface PayrollCalculationInput {
   employee: Employee
   periodo: string
@@ -12,6 +13,7 @@ export interface PayrollCalculationInput {
   isrBrackets: ISRBracket[]
 }
 
+// La interfaz PayrollCalculationResult se mantiene igual
 export interface PayrollCalculationResult {
   salarioBruto: number
   seguroSocialEmpleado: number
@@ -28,6 +30,7 @@ export interface PayrollCalculationResult {
   riesgoProfesional: number
 }
 
+// La función calculatePayroll se mantiene igual (calcula planilla regular)
 export function calculatePayroll(input: PayrollCalculationInput): PayrollCalculationResult {
   const {
     employee,
@@ -70,6 +73,8 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
 
   const riesgoProfesional = round((salarioBruto * riesgoProfesionalRate) / 100)
 
+  // Nota: Para ISR regular, la base es (Salario Base * 12) + DTM (Salario Base) = Salario Base * 13,
+  // pero el cálculo del DTM se ajusta en la función calculateDecimoTercerMesWithDeductions
   const salarioMensual = employee.salarioBase
   const salarioAnual = salarioMensual * 13
 
@@ -156,6 +161,7 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
   }
 }
 
+// CORRECCIÓN: La fórmula del DTM Bruto es (Total Ingresos / 12)
 export function calculateDecimoTercerMes(
   employee: Employee,
   payrollEntries: PayrollEntry[],
@@ -163,8 +169,10 @@ export function calculateDecimoTercerMes(
 ): {
   salarioPromedio: number
   mesesTrabajados: number
-  montoProporcional: number
+  montoTotalBruto: number // Corregido el nombre a montoTotalBruto
 } {
+  const round = (num: number) => Math.round(num * 100) / 100
+
   const yearEntries = payrollEntries.filter((entry) => {
     const entryYear = Number.parseInt(entry.periodo.split("-")[0])
     return entry.empleadoId === employee.id && entryYear === year && entry.estado !== "borrador"
@@ -172,11 +180,12 @@ export function calculateDecimoTercerMes(
 
   let mesesTrabajados = 0
   let salarioPromedio = employee.salarioBase
+  let totalIngresos = 0 // Variable auxiliar para el cálculo
 
   if (yearEntries.length > 0) {
     mesesTrabajados = yearEntries.length
-    const totalSalario = yearEntries.reduce((sum, entry) => sum + entry.salarioBruto, 0)
-    salarioPromedio = totalSalario / mesesTrabajados
+    totalIngresos = yearEntries.reduce((sum, entry) => sum + entry.salarioBruto, 0)
+    salarioPromedio = totalIngresos / mesesTrabajados
   } else {
     const hireDate = new Date(employee.fechaIngreso)
     const hireYear = hireDate.getFullYear()
@@ -184,20 +193,24 @@ export function calculateDecimoTercerMes(
     if (hireYear === year) {
       const hireMonth = hireDate.getMonth()
       mesesTrabajados = 12 - hireMonth
+      totalIngresos = employee.salarioBase * mesesTrabajados
     } else if (hireYear < year) {
       mesesTrabajados = 12
+      totalIngresos = employee.salarioBase * 12
     }
   }
 
-  const montoProporcional = (salarioPromedio * mesesTrabajados) / 12
+  // CORRECCIÓN CLAVE: La fórmula legal del DTM Bruto Total Anual es (Total Ingresos / 12)
+  const montoTotalBruto = round(totalIngresos / 12)
 
   return {
-    salarioPromedio,
+    salarioPromedio: round(salarioPromedio),
     mesesTrabajados,
-    montoProporcional,
+    montoTotalBruto,
   }
 }
 
+// CORRECCIÓN: Se ajusta el cálculo del monto total, ISR y distribución de cuotas
 export function calculateDecimoTercerMesWithDeductions(
   employee: Employee,
   payrollEntries: PayrollEntry[],
@@ -238,18 +251,8 @@ export function calculateDecimoTercerMesWithDeductions(
     salarioPromedio = totalIngresos / mesesTrabajados
 
     const monthNames = [
-      "Enero",
-      "Febrero",
-      "Marzo",
-      "Abril",
-      "Mayo",
-      "Junio",
-      "Julio",
-      "Agosto",
-      "Septiembre",
-      "Octubre",
-      "Noviembre",
-      "Diciembre",
+      "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
+      "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
     ]
     mesesDetalle = Array.from(uniqueMonths).map((periodo) => {
       const month = Number.parseInt(periodo.split("-")[1])
@@ -265,18 +268,8 @@ export function calculateDecimoTercerMesWithDeductions(
       totalIngresos = employee.salarioBase * mesesTrabajados
 
       const monthNames = [
-        "Enero",
-        "Febrero",
-        "Marzo",
-        "Abril",
-        "Mayo",
-        "Junio",
-        "Julio",
-        "Agosto",
-        "Septiembre",
-        "Octubre",
-        "Noviembre",
-        "Diciembre",
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
+        "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
       ]
       for (let i = hireMonth; i < 12; i++) {
         mesesDetalle.push(monthNames[i])
@@ -285,29 +278,21 @@ export function calculateDecimoTercerMesWithDeductions(
       mesesTrabajados = 12
       totalIngresos = employee.salarioBase * 12
       mesesDetalle = [
-        "Enero",
-        "Febrero",
-        "Marzo",
-        "Abril",
-        "Mayo",
-        "Junio",
-        "Julio",
-        "Agosto",
-        "Septiembre",
-        "Octubre",
-        "Noviembre",
-        "Diciembre",
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
+        "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
       ]
     }
   }
 
-  const montoTotal = round((totalIngresos * 4) / 12)
+  // CORRECCIÓN CLAVE: Monto Bruto Total del Décimo (Ingresos Anuales / 12)
+  const montoTotal = round(totalIngresos / 12)
 
+  // 2. Cálculo de deducciones sobre el Monto Bruto Total Anual
   const css = round((montoTotal * 7.25) / 100)
-
   const cssPatrono = round((montoTotal * 10.75) / 100)
 
-  const salarioAnual = employee.salarioBase * 13
+  // Base para calcular el ISR Anual (Salario Base * 12) + 0 (el DTM no cuenta para sí mismo)
+  const salarioAnual = employee.salarioBase * 12 
 
   let isrAnual = 0
   if (salarioAnual > 11000) {
@@ -318,32 +303,39 @@ export function calculateDecimoTercerMesWithDeductions(
     }
   }
 
-  const isr = round(isrAnual / 13)
+  // CORRECCIÓN CLAVE: ISR total a retener sobre el DTM (Generalmente 1/12 del ISR anual)
+  const isr = round(isrAnual / 12) 
 
+  // 3. Totales
   const totalDeducciones = round(css + isr)
   const totalAportesPatronales = round(cssPatrono)
   const montoNeto = round(montoTotal - totalDeducciones)
 
-  const pagoAbril = round(montoNeto / 3)
-  const pagoAgosto = round(montoNeto / 3)
-  const pagoDiciembre = round(montoNeto / 3)
+  // 4. Distribución en Cuotas, ajustando el redondeo a la última cuota
+  const pagoBase = round(montoNeto / 3)
+  const pagoAbril = pagoBase
+  const pagoAgosto = pagoBase
+  const pagoDiciembre = round(montoNeto - pagoAbril - pagoAgosto) 
 
+  // Debugging log (Muestra los resultados con la lógica corregida)
   console.log("[v0] ========================================")
   console.log("[v0] Empleado:", employee.nombre, employee.apellido)
   console.log("[v0] Meses trabajados:", mesesTrabajados)
   console.log("[v0] Meses detalle:", mesesDetalle.join(", "))
   console.log("[v0] Salario promedio: $", salarioPromedio.toFixed(2))
   console.log("[v0] Total ingresos: $", totalIngresos.toFixed(2))
-  console.log("[v0] Fórmula: Total Ingresos × 4/12")
-  console.log("[v0] Cálculo: ", `${totalIngresos.toFixed(2)} × 4/12 = ${montoTotal.toFixed(2)}`)
-  console.log("[v0] Monto bruto: $", montoTotal.toFixed(2))
+  console.log("[v0] FÓRMULA CORREGIDA: Total Ingresos / 12")
+  console.log("[v0] Cálculo: ", `${totalIngresos.toFixed(2)} / 12 = ${montoTotal.toFixed(2)}`)
+  console.log("[v0] Monto bruto (Total Anual): $", montoTotal.toFixed(2))
   console.log("[v0] CSS Empleado (7.25%): $", css.toFixed(2))
   console.log("[v0] CSS Patrono (10.75%): $", cssPatrono.toFixed(2))
-  console.log("[v0] ISR (1 mes): $", isr.toFixed(2))
+  console.log("[v0] ISR (Total Décimo): $", isr.toFixed(2))
   console.log("[v0] Total deducciones empleado: $", totalDeducciones.toFixed(2))
   console.log("[v0] Total aportes patronales: $", totalAportesPatronales.toFixed(2))
-  console.log("[v0] Monto neto: $", montoNeto.toFixed(2))
-  console.log("[v0] Pago por cuota (3 pagos): $", (montoNeto / 3).toFixed(2))
+  console.log("[v0] Monto neto (Total Anual): $", montoNeto.toFixed(2))
+  console.log("[v0] Pago Abril: $", pagoAbril.toFixed(2))
+  console.log("[v0] Pago Agosto: $", pagoAgosto.toFixed(2))
+  console.log("[v0] Pago Diciembre: $", pagoDiciembre.toFixed(2))
   console.log("[v0] ========================================")
 
   return {
@@ -363,6 +355,7 @@ export function calculateDecimoTercerMesWithDeductions(
   }
 }
 
+// La función calculateSIPEPaymentDate se mantiene igual
 export function calculateSIPEPaymentDate(periodo: string): string {
   const [year, month] = periodo.split("-").map(Number)
   const nextMonth = month === 12 ? 1 : month + 1
@@ -371,6 +364,7 @@ export function calculateSIPEPaymentDate(periodo: string): string {
   return `${nextYear}-${String(nextMonth).padStart(2, "0")}-15`
 }
 
+// CORRECCIÓN: Se ajusta la lógica para sumar 1/3 de las deducciones totales calculadas
 export function calculateSIPEPayment(
   payrollEntries: PayrollEntry[],
   periodo: string,
@@ -416,24 +410,23 @@ export function calculateSIPEPayment(
         isrBrackets,
       )
 
-      // Each payment is 1/3 of the total
-      const decimoPago = round(decimo.montoTotal / 3)
-      const decimoCSS = round((decimoPago * 7.25) / 100)
-      const decimoCSSPatrono = round((decimoPago * 10.75) / 100)
-      const decimoISR = round(decimo.isr / 3) // ISR is divided into 3 payments
+      // CORRECCIÓN: Sumar 1/3 de las deducciones TOTALES del Décimo (CSS e ISR)
+      const cssPorCuota = round(decimo.css / 3) // 1/3 del CSS total del décimo
+      const cssPatronoPorCuota = round(decimo.cssPatrono / 3) // 1/3 del CSS Patrono total del décimo
+      const isrPorCuota = round(decimo.isr / 3) // 1/3 del ISR total del décimo
 
-      totalDecimoEmpleado += decimoCSS
-      totalDecimoPatrono += decimoCSSPatrono
-      totalDecimoISR += decimoISR
+      totalDecimoEmpleado += cssPorCuota
+      totalDecimoPatrono += cssPatronoPorCuota
+      totalDecimoISR += isrPorCuota
     }
 
     totalDecimoEmpleado = round(totalDecimoEmpleado)
     totalDecimoPatrono = round(totalDecimoPatrono)
     totalDecimoISR = round(totalDecimoISR)
 
-    console.log("[v0] Total décimo CSS employee:", totalDecimoEmpleado)
-    console.log("[v0] Total décimo CSS employer:", totalDecimoPatrono)
-    console.log("[v0] Total décimo ISR:", totalDecimoISR)
+    console.log("[v0] Total décimo CSS employee (por cuota):", totalDecimoEmpleado)
+    console.log("[v0] Total décimo CSS employer (por cuota):", totalDecimoPatrono)
+    console.log("[v0] Total décimo ISR (por cuota):", totalDecimoISR)
 
     // Add décimo deductions to totals
     totalSeguroSocialEmpleado = round(totalSeguroSocialEmpleado + totalDecimoEmpleado)
@@ -457,6 +450,7 @@ export function calculateSIPEPayment(
 
   for (const employee of employeesWithoutEntries) {
     const salarioBase = employee.salarioBase
+    // Se asume el pago mensual para empleados sin entries (para propósitos del SIPE)
     totalSeguroSocialEmpleado += round((salarioBase * seguroSocialEmpleadoRate) / 100)
     totalSeguroSocialEmpleador += round((salarioBase * seguroSocialEmpleadorRate) / 100)
     totalSeguroEducativoEmpleado += round((salarioBase * seguroEducativoRate) / 100)
@@ -464,7 +458,7 @@ export function calculateSIPEPayment(
     totalRiesgoProfesional += round((salarioBase * riesgoProfesionalRate) / 100)
 
     // Calculate ISR for employees without entries
-    const salarioAnual = salarioBase * 13
+    const salarioAnual = salarioBase * 13 // Base de ISR incluye DTM
     let isrAnual = 0
     if (salarioAnual > 11000) {
       if (salarioAnual <= 50000) {

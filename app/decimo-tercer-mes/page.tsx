@@ -35,7 +35,7 @@ export default function DecimoTercerMesPage() {
         saveDecimoEntries,
         deleteYearDecimo,
         currentYear,
-        selectYear, // <--- FUNCIÓN DE CONTEXTO NECESARIA
+        selectYear, 
         calculateDecimoApi, 
         isLoading
     } = usePayroll()
@@ -43,7 +43,6 @@ export default function DecimoTercerMesPage() {
     // Fallback para arrays del contexto
     const employees = employeesContext || [];
     const decimoEntries = decimoEntriesContext || [];
-    // ELIMINADO: const [selectedYear, setSelectedYear] = useState(new Date().getFullYear()) // Se reemplaza por currentYear del contexto
     const [calculatedDecimos, setCalculatedDecimos] = useState<CalculatedDecimo[]>([])
     const [isCalculating, setIsCalculating] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
@@ -104,7 +103,6 @@ export default function DecimoTercerMesPage() {
 
         try {
             for (const employee of activeEmployees) {
-                // El API call usa la variable currentYear del contexto, que ahora se actualiza con el input
                 const result = await calculateDecimoApi(employee.id, currentYear) 
 
                 const decimoEntry: CalculatedDecimo = {
@@ -242,6 +240,7 @@ export default function DecimoTercerMesPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold text-primary">
+                            {/* Mostrar el total del monto neto dividido entre 3 */}
                             {formatCurrency(totalDecimoNeto / 3)}
                         </div>
                         <p className="text-xs text-muted-foreground">Cada cuota</p>
@@ -276,9 +275,7 @@ export default function DecimoTercerMesPage() {
                         <Input
                             id="year"
                             type="number"
-                            // FIX: Usar la variable de contexto currentYear
                             value={currentYear} 
-                            // FIX: Llamar a selectYear del contexto para actualizar el año
                             onChange={(e) => selectYear(Number.parseInt(e.target.value))} 
                             min="2000"
                             max="2100"
@@ -334,7 +331,7 @@ export default function DecimoTercerMesPage() {
                                     <p className="text-sm font-semibold">Pago de Abril</p>
                                 </div>
                                 <p className="text-2xl font-bold">
-                                    {formatCurrency(totalDecimoNeto / 3)}
+                                    {formatCurrency(calculatedDecimos[0].pagoAbril)}
                                 </p>
                                 <p className="text-xs text-muted-foreground mt-1">15 de abril</p>
                             </div>
@@ -344,7 +341,7 @@ export default function DecimoTercerMesPage() {
                                     <p className="text-sm font-semibold">Pago de Agosto</p>
                                 </div>
                                 <p className="text-2xl font-bold">
-                                    {formatCurrency(totalDecimoNeto / 3)}
+                                    {formatCurrency(calculatedDecimos[0].pagoAgosto)}
                                 </p>
                                 <p className="text-xs text-muted-foreground mt-1">15 de agosto</p>
                             </div>
@@ -354,7 +351,7 @@ export default function DecimoTercerMesPage() {
                                     <p className="text-sm font-semibold">Pago de Diciembre</p>
                                 </div>
                                 <p className="text-2xl font-bold">
-                                    {formatCurrency(totalDecimoNeto / 3)}
+                                    {formatCurrency(calculatedDecimos[0].pagoDiciembre)}
                                 </p>
                                 <p className="text-xs text-muted-foreground mt-1">15 de diciembre</p>
                             </div>
@@ -413,14 +410,16 @@ export default function DecimoTercerMesPage() {
                                                 <TableCell className="text-right font-mono">{formatCurrency(calc.salarioPromedio)}</TableCell>
                                                 <TableCell className="text-center">{calc.mesesTrabajados}</TableCell>
                                                 <TableCell className="text-right font-mono">{formatCurrency(calc.montoTotal)}</TableCell>
-                                                {/* Deducciones */}
                                                 <TableCell className="text-right font-mono text-red-600 dark:text-red-400">-{formatCurrency(calc.css)}</TableCell>
                                                 <TableCell className="text-right font-mono text-blue-600 dark:text-blue-400">{formatCurrency(calc.cssPatrono)}</TableCell>
                                                 <TableCell className="text-right font-mono text-red-600 dark:text-red-400">-{formatCurrency(calc.isr)}</TableCell>
                                                 
                                                 {/* Neto y Por Pago */}
                                                 <TableCell className="text-right font-mono font-bold text-primary">{formatCurrency(calc.montoNeto)}</TableCell>
-                                                <TableCell className="text-right font-mono text-sm">{formatCurrency(calc.montoNeto / 3)}</TableCell>
+                                                <TableCell className="text-right font-mono text-sm">
+                                                    {/* CORRECCIÓN FINAL: Usamos pagoAbril (la cuota base) */}
+                                                    {formatCurrency(calc.pagoAbril)}
+                                                </TableCell> 
                                                 <TableCell className="text-center">
                                                     <div className="flex items-center justify-center gap-1">
                                                         <Button

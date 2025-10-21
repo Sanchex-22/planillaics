@@ -51,8 +51,7 @@ import {
 import { generateSIPEPDF } from "@/lib/sipe-pdf-generator";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "@/components/ui/use-toast";
-import { calculateSIPEPaymentDate } from "@/lib/server-calculations";
-
+import { calculateSIPEPaymentDate } from "@/lib/payroll-calculations";
 // Tipo base para el cálculo SIPE (resultado del memo)
 interface SIPECalculationResult {
   periodo: string;

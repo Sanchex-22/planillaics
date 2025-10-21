@@ -2,8 +2,9 @@
 
 
 import { NextResponse } from 'next/server'
-import { calculateDecimoTercerMesWithDeductions } from '@/lib/server-calculations'
+
 import { db } from '@/lib/db/db'
+import { calculateDecimoTercerMesWithDeductions } from '@/lib/payroll-calculations'
 
 // POST /api/calculations/decimo - Calcula el décimo para un empleado específico
 export async function POST(request: Request) {

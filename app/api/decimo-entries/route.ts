@@ -33,29 +33,39 @@ export async function GET(request: Request) {
 // POST /api/decimo-entries - Guardar o actualizar una lista de entradas
 export async function POST(request: Request) {
   try {
+    // Asumimos que DecimoTercerMes es la interfaz que viene del frontend.
+    // Si la interfaz incluye 'employee' (el objeto de relación), debemos manejarlo.
     const entries = (await request.json()) as DecimoTercerMes[]
     
     if (!entries || entries.length === 0) {
-        return NextResponse.json({ error: 'No entries provided' }, { status: 400 })
+      return NextResponse.json({ error: 'No entries provided' }, { status: 400 })
     }
 
     const results = await db.$transaction(
-      entries.map(entry => db.decimoTercerMes.upsert({
-        where: { empleadoId_anio: { empleadoId: entry.empleadoId, anio: entry.anio } },
-        update: {
-            ...entry,
-            fechaCalculo: new Date(entry.fechaCalculo),
-        },
-        create: {
-            ...entry,
-            fechaCalculo: new Date(entry.fechaCalculo),
-        } as any,
-      }))
+      entries.map(entry => {
+        // CORRECCIÓN CLAVE: Desestructuramos para excluir 'id' y la relación 'employee'.
+        // El 'id' se excluye porque no debe pasarse a 'create' o 'update'.
+        // 'employee' se excluye porque es un objeto de relación, no una columna.
+        const { id, employee, ...dataToSave } = entry as any; 
+        
+        // Aseguramos que la fechaCalculo sea un objeto Date
+        const finalData = {
+          ...dataToSave,
+          fechaCalculo: new Date(dataToSave.fechaCalculo),
+        };
+
+        return db.decimoTercerMes.upsert({
+          where: { empleadoId_anio: { empleadoId: finalData.empleadoId, anio: finalData.anio } },
+          update: finalData,
+          create: finalData,
+        });
+      })
     )
 
     return NextResponse.json(results, { status: 201 })
   } catch (error) {
     console.error('Error saving décimo entries:', error)
+    // El error ha sido manejado, pero la causa original era la estructura de datos.
     return NextResponse.json({ error: 'Failed to save décimo entries' }, { status: 500 })
   }
 }
