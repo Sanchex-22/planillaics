@@ -1,5 +1,3 @@
-// File: lib/utils.ts (MODIFICADO)
-
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 
@@ -18,10 +16,6 @@ export function formatCurrency(value: number | null | undefined): string {
     maximumFractionDigits: 2,
   })
 }
-
-// =================================================================
-// NUEVA FUNCIÓN: API Fetcher
-// =================================================================
 
 interface FetcherOptions extends RequestInit {
   data?: any
