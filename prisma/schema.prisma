@@ -14,6 +14,20 @@ generator client {
 // Modelos de Base de Datos
 // =================================================================
 
+// File: prisma/schema.prisma
+
+model User {
+  id          String   @id @default(cuid())
+  nombre      String
+  email       String   @unique
+  rol         String // "super_admin" | "contador"
+  companias   String[]
+  activo      Boolean  @default(true)
+  
+  // 🔑 CAMBIO ESENCIAL: Campo para la contraseña hasheada
+  hashedPassword String? 
+}
+
 model Company {
   id                 String              @id @default(cuid())
   nombre             String
@@ -31,16 +45,6 @@ model Company {
   payrollEntries     PayrollEntry[]
   decimoCalculations DecimoTercerMes[]
   sipePayments       SIPEPayment[]
-}
-
-model User {
-  id          String   @id @default(cuid())
-  nombre      String
-  email       String   @unique
-  rol         String // "super_admin" | "contador"
-  companias   String[] // Array of company IDs
-  activo      Boolean  @default(true)
-  // NOTA: Para un usuario real, deberías añadir un campo de contraseña.
 }
 
 model Employee {
