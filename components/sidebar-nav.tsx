@@ -16,11 +16,13 @@ import {
   Building2,
   Receipt,
   Loader2,
+  LogOutIcon,
 } from "lucide-react"
 import { CompanySelector } from "./company-selector"
 import { usePayroll } from "@/lib/payroll-context"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useClerk } from "@clerk/nextjs"
 
 const navItems = [
   {
@@ -87,6 +89,7 @@ const navItems = [
 
 export function SidebarNav() {
   const pathname = usePathname()
+    const { signOut } = useClerk();
   // Se añade 'isHydrated' para saber cuándo el contexto terminó de cargar datos iniciales.
   const { currentUser, isHydrated } = usePayroll()
 
@@ -151,7 +154,7 @@ export function SidebarNav() {
         )
       })}
 
-      {currentUser && (
+      {/* {currentUser && (
         <div className="mt-auto pt-4 border-t border-border">
           <div className="px-3">
               <div className="text-xs text-muted-foreground">
@@ -160,7 +163,17 @@ export function SidebarNav() {
               </div>
           </div>
         </div>
-      )}
+      )} */}
+
+      <div
+        className="flex w-full cursor-pointer items-center gap-1 rounded-b-md px-4 py-4 text-center duration-200 hover:text-red-400"
+        onClick={() => signOut()}
+      >
+        <LogOutIcon className="text-red-500" size={18} />
+        <p className="text-xs font-semibold uppercase tracking-widest text-red-500">
+          Logout
+        </p>
+      </div>
     </nav>
   )
 }
