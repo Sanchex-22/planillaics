@@ -22,7 +22,8 @@ import { CompanySelector } from "./company-selector"
 import { usePayroll } from "@/lib/payroll-context"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useClerk } from "@clerk/nextjs"
+import { SignOutButton, useClerk } from "@clerk/nextjs"
+import LogoutButton from "./LogoutButton"
 
 const navItems = [
   {
@@ -174,6 +175,7 @@ export function SidebarNav() {
           Logout
         </p>
       </div>
+      <SignOutButton/>
     </nav>
   )
 }

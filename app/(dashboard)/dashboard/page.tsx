@@ -6,6 +6,7 @@ import { Users, DollarSign, TrendingUp, Calendar } from "lucide-react"
 
 // IMPORTACIÓN DE PRISMA
 import { db } from "@/lib/db/db"; 
+import DashboardLayout from "../dashboardLayout";
 
 // Convertir esto a un Server Component asíncrono
 export default async function DashboardPage() {
@@ -52,6 +53,7 @@ export default async function DashboardPage() {
 
 
   return (
+    <DashboardLayout>
     <div className="p-6 md:p-10"> 
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
@@ -144,5 +146,6 @@ export default async function DashboardPage() {
         </Card>
       </div>
     </div>
+    </DashboardLayout>
   )
 }

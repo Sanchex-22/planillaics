@@ -3,12 +3,19 @@ import { SidebarNav } from "@/components/sidebar-nav";
 import { Toaster } from "@/components/ui/toaster";
 import { PayrollProvider } from "@/lib/payroll-context";
 import { Children, Suspense } from "react";
+import { redirect } from "next/navigation";
+import { auth, currentUser } from "@clerk/nextjs/server";
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+    const { userId }: { userId: string | null } = await auth();
+
+  if (!userId) return redirect("/sign-in");
+  const user = await currentUser();
+  if (!user) return null;
   return (
     <>
           <Suspense fallback={<div>Loading...</div>}>

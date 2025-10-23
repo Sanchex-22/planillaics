@@ -7,7 +7,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { ClerkProvider, SignedIn, UserButton } from '@clerk/nextjs'
 // Estilos Globales
 import "./globals.css";
-import DashboardLayout from "./dashboardLayout";
+import DashboardLayout from "./(dashboard)/dashboardLayout";
 
 // Metadata de la página
 export const metadata: Metadata = {
@@ -28,7 +28,8 @@ export default function RootLayout({
         <body
           className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}
         >
-          <DashboardLayout> {children}</DashboardLayout>
+          {children}
+          {/* <DashboardLayout> {children}</DashboardLayout> */}
           <Analytics />
         </body>
       </html>
