@@ -2,7 +2,6 @@
 
 datasource db {
   provider = "postgresql"
-  // Asegúrate de definir DATABASE_URL en tu archivo .env
   url      = env("PLANILLA_PRISMA_DATABASE_URL")
 }
 
@@ -14,70 +13,115 @@ generator client {
 // Modelos de Base de Datos
 // =================================================================
 
-// File: prisma/schema.prisma
-
 model User {
   id             String    @id @default(cuid())
-  nombre         String
+  nombre         String    // <-- Correcto, mantuviste este
   email          String    @unique
-  rol            String // "super_admin" | "contador"
-  companias      String[]
+  rol            String
+  companias      Company[] @relation("CompanyUsers")
   activo         Boolean   @default(true)
-  hashedPassword String? // <-- Campo para la contraseña hasheada
-  name           String
+  hashedPassword String?
   emailVerified  Boolean   @default(false)
   image          String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @default(now()) @updatedAt
+
+  // --- CORRECCIÓN 1: Añadir la relación a Account ---
+  accounts       Account[]
+
+  // --- CORRECCIÓN 2: Conectar a la Session correcta (sin nombre de relación) ---
   sessions       Session[]
 
   @@map("user")
 }
 
 model Company {
-  id                 String            @id @default(cuid())
-  nombre             String
-  ruc                String            @unique // <--- CORRECCIÓN CLAVE AQUÍ
-  direccion          String?
-  telefono           String?
-  email              String?
+  id                   String            @id @default(cuid())
+  nombre               String
+  ruc                  String            @unique
+  direccion            String?
+  telefono             String?
+  email                String?
   representanteLegal String?
-  activo             Boolean           @default(true)
-  fechaCreacion      DateTime          @default(now())
-  employees          Employee[]
-  legalParameters    LegalParameters[]
-  isrBrackets        ISRBracket[]
-  payrollEntries     PayrollEntry[]
-  decimoCalculations DecimoTercerMes[]
-  sipePayments       SIPEPayment[]
+  activo               Boolean           @default(true)
+  fechaCreacion        DateTime          @default(now())
+  users                User[]            @relation("CompanyUsers")
+  employees            Employee[]
+  legalParameters      LegalParameters[]
+  isrBrackets          ISRBracket[]
+  payrollEntries       PayrollEntry[]
+  decimoCalculations   DecimoTercerMes[]
+  sipePayments         SIPEPayment[]
 }
 
 model Employee {
-  id                             String            @id @default(cuid())
-  companiaId                     String
-  company                        Company           @relation(fields: [companiaId], references: [id], onDelete: Cascade)
-  cedula                         String
-  nombre                         String
-  apellido                       String?
-  fechaIngreso                   DateTime
-  salarioBase                    Float
-  departamento                   String?
-  cargo                          String?
-  estado                         String            @default("activo") // "activo" | "inactivo"
-  email                          String?
-  telefono                       String?
-  direccion                      String?
-  deduccionesBancarias           Float?
-  mesesDeduccionesBancarias      Int[] // Postgres ARRAY of INT
-  prestamos                      Float?
-  mesesPrestamos                 Int[] // Postgres ARRAY of INT
-  // Usamos JSON para estructuras complejas como EmployeeDeduction[]
+  id                          String    @id @default(cuid())
+  companiaId                  String
+  company                     Company   @relation(fields: [companiaId], references: [id], onDelete: Cascade)
+  cedula                      String
+  nombre                      String
+  apellido                    String?
+  fechaIngreso                DateTime
+  salarioBase                 Float
+  departamento                String?
+  cargo                       String?
+  estado                      String    @default("activo")
+  email                       String?
+  telefono                    String?
+  direccion                   String?
+  deduccionesBancarias        Float?
+  mesesDeduccionesBancarias   Int[]
+  prestamos                   Float?
+  mesesPrestamos              Int[]
   otrasDeduccionesPersonalizadas Json?
-  payrollEntries                 PayrollEntry[]
-  decimoCalculations             DecimoTercerMes[]
+  payrollEntries              PayrollEntry[]
+  decimoCalculations          DecimoTercerMes[]
 
   @@unique([companiaId, cedula])
 }
+
+// --- MODELOS DE AUTH.JS ---
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+// --- CORRECCIÓN 3: Dejar SOLO esta definición de Session ---
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// --- (El modelo Session duplicado fue eliminado) ---
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+
+// --- MODELOS DE TU APLICACIÓN (SIN CAMBIOS) ---
 
 model LegalParameters {
   id            String   @id @default(cuid())
@@ -103,84 +147,77 @@ model ISRBracket {
 }
 
 model PayrollEntry {
-  id                             String   @id @default(cuid())
-  companiaId                     String
-  company                        Company  @relation(fields: [companiaId], references: [id], onDelete: Cascade)
-  empleadoId                     String
-  employee                       Employee @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
-  periodo                        String
-  tipoPeriodo                    String
-  salarioBruto                   Float
-  horasExtras                    Float
-  bonificaciones                 Float
-  otrosIngresos                  Float
-  seguroSocialEmpleado           Float
-  seguroEducativo                Float
-  isr                            Float
-  deduccionesBancarias           Float?
-  prestamos                      Float?
+  id                          String   @id @default(cuid())
+  companiaId                  String
+  company                     Company  @relation(fields: [companiaId], references: [id], onDelete: Cascade)
+  empleadoId                  String
+  employee                    Employee @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
+  periodo                     String
+  tipoPeriodo                 String
+  salarioBruto                Float
+  horasExtras                 Float
+  bonificaciones              Float
+  otrosIngresos               Float
+  seguroSocialEmpleado        Float
+  seguroEducativo             Float
+  isr                         Float
+  deduccionesBancarias        Float?
+  prestamos                   Float?
   otrasDeduccionesPersonalizadas Float
-  otrasRetenciones               Float
-  salarioNeto                    Float
-  fechaCalculo                   DateTime @default(now())
-  estado                         String
-  seguroSocialEmpleador          Float
-  seguroEducativoEmpleador       Float
-  riesgoProfesional              Float
-  fondoCesantia                  Float
+  otrasRetenciones            Float
+  salarioNeto                 Float
+  fechaCalculo                DateTime @default(now())
+  estado                      String
+  seguroSocialEmpleador       Float
+  seguroEducativoEmpleador    Float
+  riesgoProfesional           Float
+  fondoCesantia               Float
 
   @@unique([empleadoId, periodo])
 }
 
 model DecimoTercerMes {
-  id                     String   @id @default(cuid())
-  companiaId             String
-  company                Company  @relation(fields: [companiaId], references: [id], onDelete: Cascade)
-  empleadoId             String
-  employee               Employee @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
-  anio                   Int
-  salarioPromedio        Float
-  mesesTrabajados        Int
-  montoTotal             Float
-  css                    Float
-  cssPatrono             Float
-  isr                    Float
-  totalDeducciones       Float
+  id                   String   @id @default(cuid())
+  companiaId           String
+  company              Company  @relation(fields: [companiaId], references: [id], onDelete: Cascade)
+  empleadoId           String
+  employee             Employee @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
+  anio                 Int
+  salarioPromedio      Float
+  mesesTrabajados      Int
+  montoTotal           Float
+  css                  Float
+  cssPatrono           Float
+  isr                  Float
+  totalDeducciones     Float
   totalAportesPatronales Float
-  montoNeto              Float
-  pagoAbril              Float
-  pagoAgosto             Float
-  pagoDiciembre          Float
-  fechaCalculo           DateTime @default(now())
-  estado                 String
+  montoNeto            Float
+  pagoAbril            Float
+  pagoAgosto           Float
+  pagoDiciembre        Float
+  fechaCalculo         DateTime @default(now())
+  estado               String
 
   @@unique([empleadoId, anio])
 }
 
 model SIPEPayment {
-  id                            String    @id @default(cuid())
-  companiaId                    String
-  company                       Company   @relation(fields: [companiaId], references: [id], onDelete: Cascade)
-  periodo                       String
-  fechaLimite                   DateTime
-  totalSeguroSocialEmpleado     Float
-  totalSeguroSocialEmpleador    Float
-  totalSeguroEducativoEmpleado  Float
+  id                          String    @id @default(cuid())
+  companiaId                  String
+  company                     Company   @relation(fields: [companiaId], references: [id], onDelete: Cascade)
+  periodo                     String
+  fechaLimite                 DateTime
+  totalSeguroSocialEmpleado   Float
+  totalSeguroSocialEmpleador  Float
+  totalSeguroEducativoEmpleado Float
   totalSeguroEducativoEmpleador Float
-  totalRiesgoProfesional        Float
-  totalFondoCesantia            Float
-  totalISR                      Float
-  totalAPagar                   Float
-  estado                        String
-  fechaPago                     DateTime?
-  referenciaPago                String?
+  totalRiesgoProfesional      Float
+  totalFondoCesantia          Float
+  totalISR                    Float
+  totalAPagar                 Float
+  estado                      String
+  fechaPago                   DateTime?
+  referenciaPago              String?
 
   @@unique([companiaId, periodo])
-}
-
-model Session {
-  id        String   @id @default(cuid())
-  userId    String
-  expiresAt DateTime
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

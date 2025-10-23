@@ -3,15 +3,6 @@ import type React from "react";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
-// Imports de Terceros (Clerk, Geist, Vercel)
-import {
-  ClerkProvider,
-  SignInButton,
-  SignUpButton,
-  SignedIn,
-  SignedOut,
-  UserButton,
-} from "@clerk/nextjs";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Analytics } from "@vercel/analytics/next";
@@ -25,6 +16,7 @@ import { PayrollProvider } from "@/lib/payroll-context";
 
 // Estilos Globales
 import "./globals.css";
+import NextAuthProvider from "./providers";
 
 // Metadata de la página
 export const metadata: Metadata = {
@@ -40,11 +32,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
+
       <html lang="es">
         <body
           className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}
         >
+          <NextAuthProvider>
           <Suspense fallback={<div>Loading...</div>}>
             <PayrollProvider>
               <div className="flex min-h-screen bg-background">
@@ -72,8 +65,8 @@ export default function RootLayout({
           {/* Componentes globales fuera del layout principal */}
           <Toaster />
           <Analytics />
+          </NextAuthProvider>
         </body>
       </html>
-    </ClerkProvider>
   );
 }

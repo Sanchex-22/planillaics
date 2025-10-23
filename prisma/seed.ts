@@ -1,11 +1,12 @@
+// AJUSTE 1: Importar 'hash' de 'bcryptjs'
 import { PrismaClient } from '@prisma/client'
 import { hash } from 'bcryptjs'
 
 // --- Tipos de Datos de Ejemplo ---
 type EmployeeDeduction = {
-  nombre: string;
-  monto: number;
-  mensual: boolean; // Aplicar mes a mes?
+  nombre: string
+  monto: number
+  mensual: boolean // Aplicar mes a mes?
 }
 
 const prisma = new PrismaClient()
@@ -14,7 +15,6 @@ async function main() {
   console.log('Iniciando script de seeding...')
 
   // 1. CREAR COMPAÑÍA DE EJEMPLO
-  // CORRECCIÓN: 'ruc' ahora es un campo único válido para usar en 'where'
   const company1 = await prisma.company.upsert({
     where: { ruc: '800100200-1-2025' },
     update: {},
@@ -30,18 +30,27 @@ async function main() {
   })
   console.log(`Creada la compañía: ${company1.nombre} (ID: ${company1.id})`)
 
+  // AJUSTE 2: Hashear una contraseña para el admin
+  // (Asegúrate de haber corrido: npm install bcryptjs @types/bcryptjs -D)
+  const hashedPassword = await hash('superadmin123', 12) // <- ¡Usa una clave segura!
+
   // 2. CREAR USUARIO SUPER ADMIN DE EJEMPLO
-  const hashedPassword = await hash('Admin2025', 10)
   const user1 = await prisma.user.upsert({
     where: { email: 'admin@intermaritime.org' },
-    update: { /* Aquí podrías actualizar el hash de la contraseña si el campo existiera */ }, 
+    update: {},
     create: {
       nombre: 'Super Admin',
       email: 'admin@intermaritime.org',
       rol: 'super_admin',
-      companias: [company1.id],
       activo: true,
-      // Si el modelo User tuviera un campo `password`, lo añadirías aquí.
+      
+      // AJUSTE 3: Añadir la contraseña al 'create'
+      hashedPassword: hashedPassword,
+      
+      // Esta relación M-N es correcta según tu schema
+      companias: {
+        connect: [{ id: company1.id }],
+      },
     },
   })
   console.log(`Creado el usuario: ${user1.email}`)
@@ -52,27 +61,30 @@ async function main() {
     { nombre: 'SEGURO_EDUCATIVO_EMPLEADO', tipo: 'DEDUCCION_FIJA', porcentaje: 1.25, fechaVigencia: new Date('2025-01-01') },
     { nombre: 'CSS_EMPLEADOR', tipo: 'APORTE_PATRONAL', porcentaje: 12.25, fechaVigencia: new Date('2025-01-01') },
     { nombre: 'SEGURO_EDUCATIVO_EMPLEADOR', tipo: 'APORTE_PATRONAL', porcentaje: 1.50, fechaVigencia: new Date('2025-01-01') },
-    { nombre: 'RIESGO_PROFESIONAL', tipo: 'APORTE_PATRONAL', porcentaje: 0.98, fechaVigencia: new Date('2025-01-01') }, // Ejemplo
+    { nombre: 'RIESGO_PROFESIONAL', tipo: 'APORTE_PATRONAL', porcentaje: 0.98, fechaVigencia: new Date('2025-01-01') },
     { nombre: 'FONDO_CESANTIA', tipo: 'APORTE_PATRONAL', porcentaje: 1.00, fechaVigencia: new Date('2025-01-01') },
   ]
 
-  for (const param of legalParams) {
-    await prisma.legalParameters.upsert({
-      where: {
-        companiaId_nombre_fechaVigencia: {
-          companiaId: company1.id,
-          nombre: param.nombre,
-          fechaVigencia: param.fechaVigencia,
+  // Usar 'Promise.all' para ejecutar todas las 'upserts' en paralelo (más rápido)
+  await Promise.all(
+    legalParams.map((param) =>
+      prisma.legalParameters.upsert({
+        where: {
+          companiaId_nombre_fechaVigencia: {
+            companiaId: company1.id,
+            nombre: param.nombre,
+            fechaVigencia: param.fechaVigencia,
+          },
         },
-      },
-      update: { porcentaje: param.porcentaje },
-      create: {
-        ...param,
-        companiaId: company1.id,
-      },
-    })
-  }
-  console.log('Creados 6 parámetros legales de ejemplo.')
+        update: { porcentaje: param.porcentaje },
+        create: {
+          ...param,
+          companiaId: company1.id,
+        },
+      })
+    )
+  )
+  console.log('Creados/Actualizados 6 parámetros legales de ejemplo.')
 
   // 4. CREAR TRAMOS ISR (Ejemplo basado en Panamá)
   const isrBrackets = [
@@ -80,17 +92,16 @@ async function main() {
     { desde: 11000.01, hasta: 50000.00, porcentaje: 15, deduccionFija: 1650.00 },
     { desde: 50000.01, hasta: null, porcentaje: 25, deduccionFija: 6650.00 },
   ]
-  await prisma.iSRBracket.deleteMany({ where: { companiaId: company1.id } })
 
-  for (const bracket of isrBrackets) {
-    await prisma.iSRBracket.create({
-      data: {
-        ...bracket,
-        companiaId: company1.id,
-      },
-    })
-  }
-  console.log('Creados 3 tramos de ISR de ejemplo.')
+  // MEJORA: Usar 'deleteMany' y 'createMany' para eficiencia
+  await prisma.iSRBracket.deleteMany({ where: { companiaId: company1.id } })
+  await prisma.iSRBracket.createMany({
+    data: isrBrackets.map((bracket) => ({
+      ...bracket,
+      companiaId: company1.id,
+    })),
+  })
+  console.log('Recreados 3 tramos de ISR de ejemplo.')
 
   // 5. CREAR EMPLEADO DE EJEMPLO
   const customDeductions: EmployeeDeduction[] = [
@@ -98,14 +109,13 @@ async function main() {
   ]
 
   const employee1 = await prisma.employee.upsert({
-    // CORRECCIÓN: Se usa el índice único compuesto: companiaId_cedula
     where: {
-        companiaId_cedula: {
-            companiaId: company1.id,
-            cedula: '8-800-800',
-        },
+      companiaId_cedula: {
+        companiaId: company1.id,
+        cedula: '8-800-800',
+      },
     },
-    update: {},
+    update: {}, // Si se encuentra, no hacer nada
     create: {
       companiaId: company1.id,
       cedula: '8-800-800',
@@ -117,11 +127,11 @@ async function main() {
       cargo: 'Desarrollador Senior',
       estado: 'activo',
       email: 'roberto.perez@tecno.com',
-      deduccionesBancarias: 150.00, 
-      mesesDeduccionesBancarias: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 
-      prestamos: 50.00, 
-      mesesPrestamos: [1, 2], 
-      otrasDeduccionesPersonalizadas: customDeductions, 
+      deduccionesBancarias: 150.00,
+      mesesDeduccionesBancarias: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+      prestamos: 50.00,
+      mesesPrestamos: [1, 2],
+      otrasDeduccionesPersonalizadas: customDeductions, // Campo JSON
     },
   })
   console.log(`Creado el empleado: ${employee1.nombre} (ID: ${employee1.id})`)
@@ -131,10 +141,9 @@ async function main() {
 
 main()
   .catch((e) => {
-    console.error(e)
+    console.error('Error durante el seeding:', e)
     process.exit(1)
   })
   .finally(async () => {
-    // CORRECCIÓN: El método para desconectar es '$disconnect'
     await prisma.$disconnect()
   })
