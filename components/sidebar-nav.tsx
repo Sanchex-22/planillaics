@@ -1,5 +1,3 @@
-// File: components/sidebar-nav.tsx (CORREGIDO)
-
 "use client"
 
 import Link from "next/link"
@@ -15,15 +13,12 @@ import {
   DollarSign,
   Building2,
   Receipt,
-  Loader2,
   LogOutIcon,
 } from "lucide-react"
 import { CompanySelector } from "./company-selector"
 import { usePayroll } from "@/lib/payroll-context"
-import { Separator } from "@/components/ui/separator"
-import { Skeleton } from "@/components/ui/skeleton"
-import { SignOutButton, useClerk } from "@clerk/nextjs"
-import LogoutButton from "./LogoutButton"
+import { useClerk } from "@clerk/nextjs"
+import { Skeleton } from "./ui/skeleton"
 
 const navItems = [
   {
@@ -175,7 +170,6 @@ export function SidebarNav() {
           Logout
         </p>
       </div>
-      <SignOutButton/>
     </nav>
   )
 }

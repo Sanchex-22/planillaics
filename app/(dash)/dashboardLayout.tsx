@@ -11,9 +11,12 @@ export default async function DashboardLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-    const { userId }: { userId: string | null } = await auth();
+    const { isAuthenticated } = await auth();
 
-  if (!userId) return redirect("/sign-in");
+  if (!isAuthenticated) {
+    console.log("Usuario no autenticado, redirigiendo a /sign-in");
+    redirect("/sign-in");
+  };
   const user = await currentUser();
   if (!user) return null;
   return (
@@ -35,8 +38,6 @@ export default async function DashboardLayout({
               </div>
             </PayrollProvider>
           </Suspense>
-
-          {/* Componentes globales fuera del layout principal */}
           <Toaster />
     </>
   );
