@@ -1,27 +1,11 @@
-// File: app/page.tsx (MIGRADO A PRISMA)
-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, DollarSign, TrendingUp, Calendar } from "lucide-react"
-// import { SidebarNav } from "@/components/sidebar-nav" // No se usa en el return principal
-
-// IMPORTACIÓN DE PRISMA
 import { db } from "@/lib/db/db"; 
-import DashboardLayout from "../dashboardLayout";
 
-// Convertir esto a un Server Component asíncrono
 export default async function DashboardPage() {
-  // NOTA: En un proyecto real, el ID de la compañía se obtendría de la sesión.
-  // Aquí usamos el primer registro o un ID de fallback.
   const firstCompany = await db.company.findFirst();
-  // Usar el operador || directamente para el fallback
   const currentCompanyId = firstCompany?.id ?? "default-company-id"; 
-
-  // Generar YYYY-MM para la consulta del mes (ej. 2025-10)
   const currentMonth = new Date().toISOString().slice(0, 7) 
-
-  // --- Consulta de Datos ---
-
-  // 1. Empleados Activos
   const activeEmployees = await db.employee.count({
     where: {
       companiaId: currentCompanyId,
@@ -33,7 +17,6 @@ export default async function DashboardPage() {
   const currentMonthPayroll = await db.payrollEntry.findMany({
     where: {
       companiaId: currentCompanyId,
-      // Busca todas las entradas que comienzan con el mes actual (incluyendo quincenas)
       periodo: {
         startsWith: currentMonth 
       }
@@ -43,17 +26,13 @@ export default async function DashboardPage() {
       salarioBruto: true
     }
   })
-
-  // 3. Cálculos de Totales (Añadido '?? 0' para robustez en caso de valores inesperados)
   const totalPayroll = currentMonthPayroll.reduce((sum, entry) => sum + (entry.salarioNeto ?? 0), 0);
   const totalGross = currentMonthPayroll.reduce((sum, entry) => sum + (entry.salarioBruto ?? 0), 0);
-
-  // Fecha para el Card de Período
   const currentMonthName = new Date().toLocaleDateString("es-PA", { month: "long", year: "numeric" });
 
 
   return (
-    <DashboardLayout>
+    <>
     <div className="p-6 md:p-10"> 
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
@@ -146,6 +125,6 @@ export default async function DashboardPage() {
         </Card>
       </div>
     </div>
-    </DashboardLayout>
+    </>
   )
 }

@@ -7,7 +7,6 @@ import { Analytics } from "@vercel/analytics/next";
 import { ClerkProvider, SignedIn, UserButton } from '@clerk/nextjs'
 // Estilos Globales
 import "./globals.css";
-import DashboardLayout from "./(dashboard)/dashboardLayout";
 
 // Metadata de la página
 export const metadata: Metadata = {
