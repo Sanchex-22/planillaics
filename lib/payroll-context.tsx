@@ -31,7 +31,7 @@ interface PayrollContextType {
   payrollEntries: PayrollEntry[]
   decimoEntries: DecimoTercerMes[]
   sipePayments: SIPEPayment[]
-
+  currentCompanyId: string | null
   // Loading States
   isLoading: boolean
   
@@ -94,6 +94,7 @@ const initialContextValue: PayrollContextType = {
   // Data States (valores iniciales)
   companies: [],
   currentCompany: null,
+  currentCompanyId: null,
   employees: [],
   legalParameters: [],
   isrBrackets: [],
@@ -633,6 +634,7 @@ const calculateDecimoApi = useCallback(async (empleadoId: string, anio: number) 
     // States
     companies,
     currentCompany,
+    currentCompanyId,
     employees,
     legalParameters,
     isrBrackets,

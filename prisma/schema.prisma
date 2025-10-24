@@ -25,7 +25,8 @@ model User {
   image          String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @default(now()) @updatedAt
-
+  clerkId String?  @unique
+  posts   Post[]
   // --- CORRECCIÓN 1: Añadir la relación a Account ---
   accounts       Account[]
 
@@ -33,6 +34,16 @@ model User {
   sessions       Session[]
 
   @@map("user")
+}
+
+model Post {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String?
+  published Boolean  @default(false)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
 }
 
 model Company {

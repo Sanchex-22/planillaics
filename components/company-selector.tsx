@@ -12,6 +12,8 @@ export function CompanySelector() {
   const availableCompanies =
     currentUser?.rol === "super_admin" ? companies : companies.filter((c) => currentUser?.companias.includes(c.id))
 
+  console.log("Available Companies:", availableCompanies)
+
   useEffect(() => {
     if (!isHydrated) return
     if (!currentCompanyId && availableCompanies.length > 0) {
@@ -42,11 +44,11 @@ export function CompanySelector() {
       <Building2 className="h-4 w-4 text-muted-foreground" />
       <Select value={currentCompanyId || undefined} onValueChange={setCurrentCompanyId}>
         <SelectTrigger className="w-[200px]">
-          <SelectValue placeholder="Seleccionar empresa" />
+          <SelectValue placeholder={currentCompanyId ? availableCompanies.find((c) => c.id === currentCompanyId)?.nombre : "Seleccione una compañía"} />
         </SelectTrigger>
         <SelectContent>
           {availableCompanies.map((company) => (
-            <SelectItem key={company.id} value={company.id}>
+            <SelectItem key={company.id} value={company.id} defaultValue={company.id}>
               {company.nombre}
             </SelectItem>
           ))}
