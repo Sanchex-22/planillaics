@@ -7,7 +7,7 @@ export default function NotFoundPage() {
         404 - Page not found
       </h1>
       <Link
-        href="/"
+        href="/:id/dashboard"
         className="text-center font-bold text-blue-900 underline dark:text-blue-200"
       >
         <span className="animate-duration-600 animate-pulse no-underline">
