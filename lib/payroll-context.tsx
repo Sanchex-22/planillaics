@@ -26,6 +26,8 @@ import {
   PayrollCalculationInput,
   PayrollCalculationResult,
 } from "./server-calculations";
+import { useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 
 // =================================================================
 // 1. TYPING AND INITIAL STATE
@@ -164,6 +166,8 @@ export const PayrollProvider: React.FC<PayrollProviderProps> = ({
   const [companies, setCompanies] = useState<Company[]>(initialCompanies);
   
   // El ID de la compañía actual también viene de la prop
+  const router = useRouter();
+  const pathname = usePathname();
   const [currentCompanyId, setCurrentCompanyId] = useState<string | null>(activeCompanyId);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -297,16 +301,18 @@ export const PayrollProvider: React.FC<PayrollProviderProps> = ({
   // =================================================================
 
   // ATENCIÓN: Esta función ahora redirigirá la página
-  const handleSelectCompany = (companyId: string | null) => {
-    if (companyId) {
-      // En lugar de solo setear el estado, redirigimos a la URL de esa compañía
-      // El layout se encargará de recargar todo
-      window.location.href = `/${companyId}/dashboard`;
-    }
-  };
+  const handleSelectCompany = useCallback((companyId: string | null) => {
+    if (!companyId) return;
+
+    const segments = pathname.split("/").filter(Boolean);
+    segments.shift(); // elimina el id anterior
+
+    // Reconstruye la URL con el nuevo ID
+    const newPath = `/${companyId}/${segments.join("/") || "dashboard"}`;
+
+    router.push(newPath);
+  }, [pathname, router]);
   
-  // NOTA: fetchAllCompanies ya no existe. Debemos actualizar las funciones CRUD
-  // que dependían de él (addCompany, updateCompany, deleteCompany)
   
 // --- Companies CRUD ---
   const addCompany = useCallback(async (data: Omit<Company, 'id'>) => {
