@@ -19,73 +19,80 @@ import { CompanySelector } from "@/components/company-selector"
 import { usePayroll } from "@/lib/payroll-context"
 import { useClerk } from "@clerk/nextjs" // <-- Solo lo usamos para signOut
 import { Skeleton } from "@/components/ui/skeleton"
+import { auth } from "@clerk/nextjs/server"
 
 const navItems = [
   {
     title: "Dashboard",
     href: "/dashboard",
     icon: LayoutDashboard,
-    roles: ["super_admin", "contador"],
+    roles: ["super_admin","admin", "moderator",'user', 'member'],
   },
   {
     title: "Empleados",
     href: "/empleados",
     icon: Users,
-    roles: ["super_admin", "contador"],
+    roles: ["super_admin","admin", "moderator"],
   },
   {
     title: "Calcular Planilla",
     href: "/calcular-planilla",
     icon: Calculator,
-    roles: ["super_admin", "contador"],
+    roles: ["super_admin","admin", "moderator"],
   },
   {
     title: "Décimo Tercer Mes",
     href: "/decimo-tercer-mes",
     icon: Calendar,
-    roles: ["super_admin", "contador"],
+    roles: ["super_admin","admin", "moderator"],
   },
   {
     title: "Impuesto Sobre la Renta",
     href: "/impuesto-sobre-renta",
     icon: Receipt,
-    roles: ["super_admin", "contador"],
+    roles: ["super_admin","admin", "moderator"],
   },
   {
     title: "Pagos SIPE",
     href: "/pagos-sipe",
     icon: DollarSign,
-    roles: ["super_admin", "contador"],
+    roles: ["super_admin","admin", "moderator"],
   },
   {
     title: "Reportes",
     href: "/reportes",
     icon: FileText,
-    roles: ["super_admin", "contador"],
+    roles: ["super_admin","admin", "moderator"],
   },
   {
     title: "Parámetros Legales",
     href: "/parametros",
     icon: Settings,
-    roles: ["super_admin"],
+    roles: ["super_admin","admin", "moderator"],
   },
   {
     title: "Gestión de Empresas",
     href: "/empresas",
     icon: Building2,
-    roles: ["super_admin"],
+    roles: ["super_admin","admin"],
   },
+  // {
+  //   title: "usuarios",
+  //   href: "/usuarios",
+  //   icon: Settings,
+  //   roles: ["super_admin","admin"],
+  // },
   {
     title: "Configuración",
     href: "/configuracion",
     icon: Settings,
-    roles: ["super_admin"],
+    roles: ["super_admin","admin"],
   },
 ]
 
 export function SidebarNav() {
   const pathname = usePathname()
-  const { signOut } = useClerk() // <-- Ya no pedimos 'user' de aquí
+  const { signOut } = useClerk()
 
   // Obtenemos 'currentUser' (de nuestra DB) y 'currentCompanyId' de usePayroll
   const { currentUser, isHydrated, currentCompanyId } = usePayroll()

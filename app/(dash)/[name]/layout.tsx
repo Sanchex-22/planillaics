@@ -18,7 +18,7 @@ export default async function Layout({
   params: { name: string }; // 'name' es el ID de la compañía en la URL
 }>) {
   // 1. Obtener el clerkId del usuario autenticado
-  const { userId: clerkId } = await auth();
+  const { userId: clerkId, sessionClaims } = await auth();
   const companyIdFromUrl = params.name;
 
   if (!clerkId) {
@@ -57,13 +57,6 @@ export default async function Layout({
     redirect(`/${firstCompanyId}/dashboard`);
   }
 
-  // ¡ÉXITO! El usuario puede ver esta página.
-  
-  // ----- INICIO DE LA CORRECCIÓN -----
-  // Transformamos los datos de Prisma para que coincidan con los tipos del Context
-
-  // 1. Transformamos las compañías (Prisma Date -> string, Prisma null -> undefined)
-  // Esto soluciona el error en 'initialCompanies'
   const initialCompanies = userInDb.companias.map(c => ({
     ...c,
     // (A) Convertir Date a string (NUEVO CAMBIO)
@@ -81,8 +74,8 @@ export default async function Layout({
   const initialUser = {
     ...userInDb,
     // (A) Hacemos una aserción de tipo para 'rol' (CAMBIO ANTERIOR)
-    rol: userInDb.rol as ("super_admin" | "contador"), 
-    
+    // rol: userInDb.rol as ("super_admin" | "moderator" | "admin" ), 
+    rol: sessionClaims?.o?.rol, 
     // (B) Pasamos solo los IDs de las compañías (NUEVO CAMBIO)
     companias: userInDb.companias.map(c => c.id), 
   };

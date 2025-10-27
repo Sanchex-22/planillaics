@@ -16,7 +16,7 @@ export interface User {
   id: string
   nombre: string
   email: string
-  rol: "super_admin" | "contador"
+  rol: "super_admin" | "moderator" | "admin"
   companias: string[] // Array of company IDs the user has access to
   activo: boolean
   imageUrl?: string
