@@ -7,8 +7,13 @@ import { Building2 } from "lucide-react"
 
 export function CompanySelector() {
   const { companies, currentCompanyId, setCurrentCompanyId, currentUser, isHydrated } = usePayroll()
-  const availableCompanies =
-    currentUser?.rol === "super_admin" ? companies : companies.filter((c) => currentUser?.companias.includes(c.id))
+// Lista de roles que pueden ver todas las compañías
+const rolesQueVenTodo = ["super_admin", "admin", "moderator"];
+
+const isSuperOrAdmin = currentUser?.rol ? rolesQueVenTodo.includes(currentUser.rol) : false
+const availableCompanies = isSuperOrAdmin
+  ? companies
+  : companies.filter((c) => (currentUser?.companias?.includes(c.id)) ?? false)
   useEffect(() => {
     if (!isHydrated) return
     if (!currentCompanyId && availableCompanies.length > 0) {
