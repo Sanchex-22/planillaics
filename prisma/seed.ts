@@ -57,8 +57,8 @@ async function main() {
     where: { email: 'moderator@example.com' },
     update: { hashedPassword: passwordModerator },
     create: {
-      nombre: 'Moderator User',
-      email: 'moderator@example.com',
+      nombre: 'Contador',
+      email: 'contador@intermaritime.org',
       rol: 'moderator',
       activo: true,
       hashedPassword: passwordModerator,
@@ -74,8 +74,8 @@ async function main() {
     where: { email: 'admin@example.com' },
     update: { hashedPassword: passwordAdmin },
     create: {
-      nombre: 'Admin User',
-      email: 'admin@example.com',
+      nombre: 'Alexander Prosper',
+      email: 'alex@intermaritime.org',
       rol: 'admin',
       activo: true,
       hashedPassword: passwordAdmin,
@@ -88,7 +88,7 @@ async function main() {
 
   // Usuario Super Admin (acceso a ambas compañías)
   const userSuperAdmin = await prisma.user.upsert({
-    where: { email: 'superadmin@example.com' },
+    where: { email: 'david@intermaritime.org' },
     update: {
         hashedPassword: passwordSuperAdmin,
         companias: {
@@ -99,8 +99,8 @@ async function main() {
         }
     },
     create: {
-      nombre: 'Super Admin',
-      email: 'superadmin@example.com',
+      nombre: 'Carlos Sanchez',
+      email: 'david@intermaritime.org',
       rol: 'super_admin',
       activo: true,
       hashedPassword: passwordSuperAdmin,
