@@ -14,12 +14,12 @@ import {
   Building2,
   Receipt,
   LogOutIcon,
+  UsersIcon,
 } from "lucide-react"
 import { CompanySelector } from "@/components/company-selector"
 import { usePayroll } from "@/lib/payroll-context"
 import { useClerk } from "@clerk/nextjs" // <-- Solo lo usamos para signOut
 import { Skeleton } from "@/components/ui/skeleton"
-import { auth } from "@clerk/nextjs/server"
 
 const navItems = [
   {
@@ -76,12 +76,12 @@ const navItems = [
     icon: Building2,
     roles: ["super_admin","admin"],
   },
-  // {
-  //   title: "usuarios",
-  //   href: "/usuarios",
-  //   icon: Settings,
-  //   roles: ["super_admin","admin"],
-  // },
+  {
+    title: "Usuarios",
+    href: "/usuarios",
+    icon: UsersIcon,
+    roles: ["super_admin","admin"],
+  },
   {
     title: "Configuración",
     href: "/configuracion",
