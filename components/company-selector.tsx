@@ -7,7 +7,7 @@ import { Building2 } from "lucide-react"
 
 export function CompanySelector() {
   const { companies, currentCompanyId, setCurrentCompanyId, currentUser, isHydrated } = usePayroll()
-
+  console.log("All Companies:", companies)
   // Filter companies based on user role and permissions
   const availableCompanies =
     currentUser?.rol === "super_admin" ? companies : companies.filter((c) => currentUser?.companias.includes(c.id))

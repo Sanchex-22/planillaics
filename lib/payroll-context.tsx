@@ -1,21 +1,31 @@
-// File: lib/payroll-context.tsx (COMPLETO Y CORREGIDO PARA EVITAR TYPEERROR)
+// File: lib/payroll-context.tsx (Modificado)
 
-"use client"
+"use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react"
-import { toast } from "@/components/ui/use-toast"
-import { 
-  Company, 
-  Employee, 
-  LegalParameters, 
-  ISRBracket, 
-  PayrollEntry, 
-  DecimoTercerMes, 
-  SIPEPayment, 
-  User 
-} from "./types"
-import { apiFetcher } from "./utils"
-import { PayrollCalculationInput, PayrollCalculationResult } from "./server-calculations" 
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
+import { toast } from "@/components/ui/use-toast";
+import {
+  Company,
+  Employee,
+  LegalParameters,
+  ISRBracket,
+  PayrollEntry,
+  DecimoTercerMes,
+  SIPEPayment,
+  User,
+} from "./types";
+import { apiFetcher } from "./utils";
+import {
+  PayrollCalculationInput,
+  PayrollCalculationResult,
+} from "./server-calculations";
 
 // =================================================================
 // 1. TYPING AND INITIAL STATE
@@ -23,35 +33,34 @@ import { PayrollCalculationInput, PayrollCalculationResult } from "./server-calc
 
 interface PayrollContextType {
   // Data States
-  companies: Company[]
-  currentCompany: Company | null
-  employees: Employee[]
-  legalParameters: LegalParameters[]
-  isrBrackets: ISRBracket[]
-  payrollEntries: PayrollEntry[]
-  decimoEntries: DecimoTercerMes[]
-  sipePayments: SIPEPayment[]
-  currentCompanyId: string | null
+  companies: Company[];
+  currentCompany: Company | null;
+  employees: Employee[];
+  legalParameters: LegalParameters[];
+  isrBrackets: ISRBracket[];
+  payrollEntries: PayrollEntry[];
+  decimoEntries: DecimoTercerMes[];
+  sipePayments: SIPEPayment[];
+  currentCompanyId: string | null;
   // Loading States
-  isLoading: boolean
-  
+  isLoading: boolean;
+
   // States de Autenticación/Carga
-  currentUser: User | null 
-  isHydrated: boolean 
+  currentUser: User | null;
+  isHydrated: boolean; // Ahora significa que los datos de la compañía están cargados
 
   // Filters
-  currentPeriod: string
-  currentYear: number
+  currentPeriod: string;
+  currentYear: number;
 
   // Actions
-  setCurrentCompanyId: (companyId: string | null) => void 
-  selectPeriod: (period: string) => void
-  selectYear: (year: number) => void
-  
-  // FIX: Agregar la función al tipo de contexto (para que el componente la pueda desestructurar)
-  fetchCompanyData: (companiaId: string) => Promise<void>; 
+  setCurrentCompanyId: (companyId: string | null) => void;
+  selectPeriod: (period: string) => void;
+  selectYear: (year: number) => void;
 
-  // CRUD Operations
+  fetchCompanyData: (companiaId: string) => Promise<void>;
+
+  // ... (El resto de tipos de CRUD y Cálculos no cambian)
   addCompany: (data: Omit<Company, 'id'>) => Promise<Company>
   updateCompany: (id: string, data: Partial<Company>) => Promise<Company>
   deleteCompany: (id: string) => Promise<void>
@@ -78,20 +87,16 @@ interface PayrollContextType {
   saveSIPEPayment: (data: Omit<SIPEPayment, 'id'>) => Promise<SIPEPayment>
   deleteSIPEPayment: (id: string) => Promise<void>
 
-  // Calculation Operations (via API)
   calculatePayrollApi: (input: Omit<PayrollCalculationInput, 'legalParameters' | 'isrBrackets'> & { currentLegalParameters: LegalParameters[], currentISRBrackets: ISRBracket[] }) => Promise<PayrollCalculationResult>
   calculateDecimoApi: (employeeId: string, anio: number) => Promise<DecimoTercerMes>
   calculateSIPEApi: (periodo: string) => Promise<SIPEPayment>
 }
 
-// -----------------------------------------------------------------
-// FUNCIÓN STUB Y VALOR INICIAL PARA EVITAR EL 'TypeError: is not a function'
-// -----------------------------------------------------------------
+// ... (initialContextValue y stubs NO_OP no cambian)
 const NO_OP = () => { throw new Error("PayrollContext function called outside of provider. Check if component is wrapped."); };
 const ASYNC_NO_OP = () => Promise.reject(new Error("PayrollContext async function called outside of provider."));
 
 const initialContextValue: PayrollContextType = {
-  // Data States (valores iniciales)
   companies: [],
   currentCompany: null,
   currentCompanyId: null,
@@ -106,15 +111,10 @@ const initialContextValue: PayrollContextType = {
   isHydrated: false,
   currentPeriod: new Date().toISOString().slice(0, 7),
   currentYear: new Date().getFullYear(),
-
-  // Actions (TODAS las funciones deben ser definidas, aunque sea como stub)
   setCurrentCompanyId: NO_OP,
   selectPeriod: NO_OP,
   selectYear: NO_OP,
-  // FIX: Stub para la nueva función de recarga
   fetchCompanyData: ASYNC_NO_OP as (companiaId: string) => Promise<void>, 
-
-  // CRUD Operations (usamos ASYNC_NO_OP para funciones que devuelven Promise)
   addCompany: ASYNC_NO_OP,
   updateCompany: ASYNC_NO_OP,
   deleteCompany: ASYNC_NO_OP,
@@ -139,210 +139,214 @@ const initialContextValue: PayrollContextType = {
   calculateSIPEApi: ASYNC_NO_OP,
 };
 
-// Modificación: El contexto ahora usa el valor inicial tipado
 const PayrollContext = createContext<PayrollContextType>(initialContextValue);
 
 // =================================================================
-// 2. FETCHING AND DATA REVALIDATION LOGIC
+// 2. PROVIDER COMPONENT
 // =================================================================
 
-const localStorageKey = "planillaics:selectedCompanyId"
+// Nuevas props para recibir datos del Server Component (Layout)
+interface PayrollProviderProps {
+  children: React.ReactNode;
+  initialUser: User | null;
+  initialCompanies: Company[];
+  currentCompanyId: string; // La compañía activa de la URL
+}
 
-export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [companies, setCompanies] = useState<Company[]>([])
-  const [currentCompanyId, setCurrentCompanyId] = useState<string | null>(null)
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [legalParameters, setLegalParameters] = useState<LegalParameters[]>([])
-  const [isrBrackets, setISRBrackets] = useState<ISRBracket[]>([])
-  const [payrollEntries, setPayrollEntries] = useState<PayrollEntry[]>([])
-  const [decimoEntries, setDecimoEntries] = useState<DecimoTercerMes[]>([])
-  const [sipePayments, setSIPEPayments] = useState<SIPEPayment[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [currentPeriod, setCurrentPeriod] = useState(new Date().toISOString().slice(0, 7))
-  const [currentYear, setCurrentYear] = useState(new Date().getFullYear())
+export const PayrollProvider: React.FC<PayrollProviderProps> = ({
+  children,
+  initialUser,
+  initialCompanies,
+  currentCompanyId: activeCompanyId, // Renombramos la prop para usarla
+}) => {
+  // Los estados de usuario y compañías se inicializan con las props
+  const [currentUser, setCurrentUser] = useState<User | null>(initialUser);
+  const [companies, setCompanies] = useState<Company[]>(initialCompanies);
+  
+  // El ID de la compañía actual también viene de la prop
+  const [currentCompanyId, setCurrentCompanyId] = useState<string | null>(activeCompanyId);
 
-  const [currentUser, setCurrentUser] = useState<User | null>(null) 
-  const [isHydrated, setIsHydrated] = useState(false) 
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [legalParameters, setLegalParameters] = useState<LegalParameters[]>([]);
+  const [isrBrackets, setISRBrackets] = useState<ISRBracket[]>([]);
+  const [payrollEntries, setPayrollEntries] = useState<PayrollEntry[]>([]);
+  const [decimoEntries, setDecimoEntries] = useState<DecimoTercerMes[]>([]);
+  const [sipePayments, setSIPEPayments] = useState<SIPEPayment[]>([]);
+  const [isLoading, setIsLoading] = useState(false); // Para datos *dentro* de la compañía
+  
+  // isHydrated ahora significa que los datos iniciales (usuario/compañías) están listos
+  const [isHydrated, setIsHydrated] = useState(true); // Siempre es true por las props
 
+  const [currentPeriod, setCurrentPeriod] = useState(
+    new Date().toISOString().slice(0, 7),
+  );
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
 
   const currentCompany = useMemo(
-    () => companies.find((c) => c.id === currentCompanyId) || null,
+    () => companies.find((c) => c?.id === currentCompanyId) || null,
     [companies, currentCompanyId],
-  )
-  
+  );
+
   const getCompanyId = useCallback(() => {
     if (!currentCompanyId) {
       toast({
         title: "Advertencia",
         description: "Seleccione una compañía primero.",
-        variant: "default", // FIX TOAST
-      })
-      return null
+        variant: "default",
+      });
+      return null;
     }
-    return currentCompanyId
-  }, [currentCompanyId])
+    return currentCompanyId;
+  }, [currentCompanyId]);
 
-  const fetchCurrentUser = useCallback(async () => {
-    await new Promise(resolve => setTimeout(resolve, 50)); 
-    const mockUser: User = {
-        id: "user-mock-123",
-        nombre: "Usuario de Prueba",
-        email: "test@planilla.com",
-        rol: "super_admin", 
-        companias: ["default-company-id"],
-        activo: true,
-    };
-    setCurrentUser(mockUser);
-    return mockUser;
-  }, [])
+  // ELIMINADO: fetchCurrentUser (ya no es necesario, viene del layout)
+  // ELIMINADO: fetchAllCompanies (ya no es necesario, viene del layout)
 
+  // Esta función sigue siendo VÁLIDA. Carga los datos *de* la compañía seleccionada.
+  const fetchCompanyData = useCallback(
+    async (companiaId: string) => {
+      setIsLoading(true);
+      try {
+        const [employees, parameters, brackets, payrolls, decimos, sipes] =
+          await Promise.all([
+            apiFetcher<Employee[]>(`/api/employees`, {
+              params: { companiaId },
+            }),
+            apiFetcher<LegalParameters[]>(`/api/legal-parameters`, {
+              params: { companiaId },
+            }),
+            apiFetcher<ISRBracket[]>(`/api/isr-brackets`, {
+              params: { companiaId },
+            }),
+            apiFetcher<PayrollEntry[]>(`/api/payroll-entries`, {
+              params: { companiaId, periodo: currentPeriod.slice(0, 7) },
+            }),
+            apiFetcher<DecimoTercerMes[]>(`/api/decimo-entries`, {
+              params: { companiaId, anio: currentYear },
+            }),
+            apiFetcher<SIPEPayment[]>(`/api/sipe-payments`, {
+              params: { companiaId },
+            }),
+          ]);
 
-  const fetchAllCompanies = useCallback(async () => {
-    try {
-      const data = await apiFetcher<Company[]>("/api/companies")
-      setCompanies(data)
-      return data;
-    } catch (e) {
-      console.error(e)
-      toast({
-        title: "Error de Carga",
-        description: "No se pudieron cargar las compañías.",
-        variant: "destructive",
-      })
-      return [];
-    }
-  }, [])
-
-  // FIX: fetchCompanyData (función real para recargar datos específicos)
-  const fetchCompanyData = useCallback(async (companiaId: string) => {
-    setIsLoading(true)
-    try {
-      const [employees, parameters, brackets, payrolls, decimos, sipes] = await Promise.all([
-        apiFetcher<Employee[]>(`/api/employees`, { params: { companiaId } }),
-        apiFetcher<LegalParameters[]>(`/api/legal-parameters`, { params: { companiaId } }),
-        apiFetcher<ISRBracket[]>(`/api/isr-brackets`, { params: { companiaId } }),
-        apiFetcher<PayrollEntry[]>(`/api/payroll-entries`, { params: { companiaId, periodo: currentPeriod.slice(0, 7) } }),
-        apiFetcher<DecimoTercerMes[]>(`/api/decimo-entries`, { params: { companiaId, anio: currentYear } }),
-        apiFetcher<SIPEPayment[]>(`/api/sipe-payments`, { params: { companiaId } }),
-      ])
-
-      setEmployees(employees)
-      setLegalParameters(parameters)
-      setISRBrackets(brackets)
-      setPayrollEntries(payrolls)
-      setDecimoEntries(decimos)
-      setSIPEPayments(sipes)
-      
-    } catch (e) {
-      console.error(e)
-      toast({
-        title: "Error de Carga",
-        description: "No se pudieron cargar los datos de la compañía seleccionada.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }, [currentPeriod, currentYear]) // Dependencias para re-ejecutar si cambian los filtros de periodo
-
-  // Efectos de Inicialización (sin cambios relevantes)
-  
-  useEffect(() => {
-    async function initialize() {
-      const user = await fetchCurrentUser();
-      const companiesData = await fetchAllCompanies();
-      
-      const savedId = localStorage.getItem(localStorageKey);
-      let initialCompanyId = savedId;
-      
-      if (!initialCompanyId && user && companiesData.length > 0) {
-          initialCompanyId = companiesData[0].id;
+        setEmployees(employees);
+        setLegalParameters(parameters);
+        setISRBrackets(brackets);
+        setPayrollEntries(payrolls);
+        setDecimoEntries(decimos);
+        setSIPEPayments(sipes);
+      } catch (e) {
+        console.error(e);
+        toast({
+          title: "Error de Carga",
+          description:
+            "No se pudieron cargar los datos de la compañía seleccionada.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
       }
-      
-      if (initialCompanyId) {
-          setCurrentCompanyId(initialCompanyId);
-      }
+    },
+    [currentPeriod, currentYear],
+  );
 
-      setIsHydrated(true); 
-    }
+  // ELIMINADO: useEffect de initialize(). Ya no es necesario.
 
-    initialize();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchCurrentUser, fetchAllCompanies]);
-
+  // Este useEffect es correcto. Carga los datos de la compañía cuando el ID cambia.
   useEffect(() => {
+    // El 'localStorageKey' se sigue usando en tu código, así que lo mantenemos
+    const localStorageKey = "planillaics:selectedCompanyId";
+
     if (currentCompanyId) {
-      fetchCompanyData(currentCompanyId)
-      localStorage.setItem(localStorageKey, currentCompanyId)
+      fetchCompanyData(currentCompanyId);
+      localStorage.setItem(localStorageKey, currentCompanyId);
     } else {
-      setEmployees([])
-      setLegalParameters([])
-      setISRBrackets([])
-      setPayrollEntries([])
-      setDecimoEntries([])
-      setSIPEPayments([])
-      localStorage.removeItem(localStorageKey)
+      // Limpiar datos si no hay compañía (aunque el layout no debería permitirlo)
+      setEmployees([]);
+      setLegalParameters([]);
+      setISRBrackets([]);
+      setPayrollEntries([]);
+      setDecimoEntries([]);
+      setSIPEPayments([]);
+      localStorage.removeItem(localStorageKey);
     }
-  }, [currentCompanyId, fetchCompanyData])
+  }, [currentCompanyId, fetchCompanyData]);
 
+  // Este useEffect es correcto. Recarga los datos de planilla/décimo si cambia el filtro
   useEffect(() => {
     if (currentCompanyId) {
-        apiFetcher<PayrollEntry[]>(`/api/payroll-entries`, { params: { companiaId: currentCompanyId, periodo: currentPeriod.slice(0, 7) } })
-            .then(setPayrollEntries)
-            .catch(console.error);
+      apiFetcher<PayrollEntry[]>(`/api/payroll-entries`, {
+        params: {
+          companiaId: currentCompanyId,
+          periodo: currentPeriod.slice(0, 7),
+        },
+      })
+        .then(setPayrollEntries)
+        .catch(console.error);
 
-        apiFetcher<DecimoTercerMes[]>(`/api/decimo-entries`, { params: { companiaId: currentCompanyId, anio: currentYear } })
-            .then(setDecimoEntries)
-            .catch(console.error);
+      apiFetcher<DecimoTercerMes[]>(`/api/decimo-entries`, {
+        params: { companiaId: currentCompanyId, anio: currentYear },
+      })
+        .then(setDecimoEntries)
+        .catch(console.error);
     }
-  }, [currentCompanyId, currentPeriod, currentYear])
+  }, [currentCompanyId, currentPeriod, currentYear]);
 
   // =================================================================
   // 3. ACTION HANDLERS (CRUD API calls)
   // =================================================================
-  
-  const handleSelectCompany = (companyId: string | null) => setCurrentCompanyId(companyId) 
-  const selectPeriod = (period: string) => setCurrentPeriod(period)
-  const selectYear = (year: number) => setCurrentYear(year)
-  
-  // --- Companies CRUD ---
-  const addCompany = useCallback(async (data: Omit<Company, 'id'>) => {
-    try {
-      const newCompany = await apiFetcher<Company>("/api/companies", { method: "POST", data })
-      await fetchAllCompanies()
-      toast({ title: "Compañía Agregada", description: `La compañía ${newCompany.nombre} ha sido agregada.`, variant: "default" }) // FIX TOAST
-      return newCompany
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message || "No se pudo agregar la compañía.", variant: "destructive" })
-      throw e
+
+  // ATENCIÓN: Esta función ahora redirigirá la página
+  const handleSelectCompany = (companyId: string | null) => {
+    if (companyId) {
+      // En lugar de solo setear el estado, redirigimos a la URL de esa compañía
+      // El layout se encargará de recargar todo
+      window.location.href = `/${companyId}/dashboard`;
     }
-  }, [fetchAllCompanies])
+  };
+  
+  // NOTA: fetchAllCompanies ya no existe. Debemos actualizar las funciones CRUD
+  // que dependían de él (addCompany, updateCompany, deleteCompany)
+  
+// --- Companies CRUD ---
+  const addCompany = useCallback(async (data: Omit<Company, 'id'>) => {
+    // ELIMINAMOS EL TRY...CATCH DE AQUÍ
+    const newCompany = await apiFetcher<Company>("/api/companies", { method: "POST", data })
+    setCompanies(prev => [...prev, newCompany]);
+    // El toast de éxito se movió al diálogo
+    return newCompany
+  }, []) // Dependencia ya no incluye fetchAllCompanies
 
   const updateCompany = useCallback(async (id: string, data: Partial<Company>) => {
-    try {
-      const updatedCompany = await apiFetcher<Company>(`/api/companies/${id}`, { method: "PATCH", data })
-      await fetchAllCompanies()
-      toast({ title: "Compañía Actualizada", description: `La compañía ${updatedCompany.nombre} ha sido actualizada.`, variant: "default" }) // FIX TOAST
-      return updatedCompany
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message || "No se pudo actualizar la compañía.", variant: "destructive" })
-      throw e
-    }
-  }, [fetchAllCompanies])
+    // ELIMINAMOS EL TRY...CATCH DE AQUÍ
+    const updatedCompany = await apiFetcher<Company>(`/api/companies/${id}`, { method: "PATCH", data })
+    setCompanies(prev => prev.map(c => c.id === id ? updatedCompany : c));
+    // El toast de éxito se movió al diálogo
+    return updatedCompany
+  }, []) // Dependencia ya no incluye fetchAllCompanies
   
   const deleteCompany = useCallback(async (id: string) => {
     try {
       await apiFetcher<void>(`/api/companies/${id}`, { method: "DELETE" })
+      // Actualizamos el estado local
+      setCompanies(prev => prev.filter(c => c.id !== id));
+      toast({ title: "Compañía Eliminada", description: "La compañía ha sido eliminada.", variant: "default" })
+      
       if (currentCompanyId === id) {
-          setCurrentCompanyId(null)
+          // Si eliminamos la compañía activa, redirigimos (por ejemplo, a la página principal de selección)
+          window.location.href = '/'; // O a la primera compañía que quede
       }
-      await fetchAllCompanies()
-      toast({ title: "Compañía Eliminada", description: "La compañía ha sido eliminada.", variant: "default" }) // FIX TOAST
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar la compañía.", variant: "destructive" })
       throw e
     }
-  }, [fetchAllCompanies, currentCompanyId])
+  }, [currentCompanyId]) // Ya no depende de fetchAllCompanies
+
+  // ... (El resto de funciones CRUD para Employees, LegalParameters, etc., no cambian)
+  // ... (Ellas dependen de fetchCompanyData, lo cual es correcto)
+  
+  const selectPeriod = (period: string) => setCurrentPeriod(period)
+  const selectYear = (year: number) => setCurrentYear(year)
   
   // --- Employees CRUD ---
   const addEmployee = useCallback(async (data: Omit<Employee, 'id'>) => {
@@ -351,7 +355,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const newEmployee = await apiFetcher<Employee>("/api/employees", { method: "POST", data: { ...data, companiaId } })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Empleado Agregado", description: `${newEmployee.nombre} ${newEmployee.apellido} ha sido agregado.`, variant: "default" }) // FIX TOAST
+      toast({ title: "Empleado Agregado", description: `${newEmployee.nombre} ${newEmployee.apellido} ha sido agregado.`, variant: "default" })
       return newEmployee
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo agregar el empleado.", variant: "destructive" })
@@ -365,7 +369,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const updatedEmployee = await apiFetcher<Employee>(`/api/employees/${id}`, { method: "PATCH", data })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Empleado Actualizado", description: `${updatedEmployee.nombre} ${updatedEmployee.apellido} ha sido actualizado.`, variant: "default" }) // FIX TOAST
+      toast({ title: "Empleado Actualizado", description: `${updatedEmployee.nombre} ${updatedEmployee.apellido} ha sido actualizado.`, variant: "default" })
       return updatedEmployee
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo actualizar el empleado.", variant: "destructive" })
@@ -379,7 +383,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/employees/${id}`, { method: "DELETE" })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Empleado Eliminado", description: "El empleado ha sido eliminado.", variant: "default" }) // FIX TOAST
+      toast({ title: "Empleado Eliminado", description: "El empleado ha sido eliminado.", variant: "default" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el empleado.", variant: "destructive" })
       throw e
@@ -392,21 +396,21 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/employees`, { method: "DELETE", params: { companiaId } })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Empleados Eliminados", description: "Todos los empleados han sido eliminados.", variant: "default" }) // FIX TOAST
+      toast({ title: "Empleados Eliminados", description: "Todos los empleados han sido eliminados.", variant: "default" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudieron eliminar los empleados.", variant: "destructive" })
       throw e
     }
   }, [getCompanyId, fetchCompanyData])
 
-  // --- Legal Parameters CRUD --- (se mantienen las implementaciones)
+  // --- Legal Parameters CRUD ---
   const addLegalParameter = useCallback(async (data: Omit<LegalParameters, 'id'>) => {
     const companiaId = getCompanyId()
     if (!companiaId) throw new Error("No company selected.")
     try {
       const newParam = await apiFetcher<LegalParameters>("/api/legal-parameters", { method: "POST", data: { ...data, companiaId } })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Parámetro Agregado", description: `${newParam.nombre} agregado.`, variant: "default" }) // FIX TOAST
+      toast({ title: "Parámetro Agregado", description: `${newParam.nombre} agregado.`, variant: "default" })
       return newParam
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo agregar el parámetro.", variant: "destructive" })
@@ -420,7 +424,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const updatedParam = await apiFetcher<LegalParameters>(`/api/legal-parameters/${id}`, { method: "PATCH", data })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Parámetro Actualizado", description: `${updatedParam.nombre} actualizado.`, variant: "default" }) // FIX TOAST
+      toast({ title: "Parámetro Actualizado", description: `${updatedParam.nombre} actualizado.`, variant: "default" })
       return updatedParam
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo actualizar el parámetro.", variant: "destructive" })
@@ -434,7 +438,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/legal-parameters/${id}`, { method: "DELETE" })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Parámetro Eliminado", description: "El parámetro legal ha sido eliminado.", variant: "default" }) // FIX TOAST
+      toast({ title: "Parámetro Eliminado", description: "El parámetro legal ha sido eliminado.", variant: "default" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el parámetro.", variant: "destructive" })
       throw e
@@ -448,8 +452,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>("/api/isr-brackets", { method: "POST", data: { companiaId, brackets } })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Tramos ISR Actualizados", description: "La tabla de ISR ha sido actualizada correctamente.", variant: "default" }) // FIX TOAST
-      // return void
+      toast({ title: "Tramos ISR Actualizados", description: "La tabla de ISR ha sido actualizada correctamente.", variant: "default" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo actualizar la tabla de ISR.", variant: "destructive" })
       throw e
@@ -463,7 +466,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const savedEntries = await apiFetcher<PayrollEntry[]>("/api/payroll-entries", { method: "POST", data: entries.map(e => ({...e, companiaId})) })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Planilla Guardada", description: `Se guardaron ${savedEntries.length} entradas de planilla.`, variant: "default" }) // FIX TOAST
+      toast({ title: "Planilla Guardada", description: `Se guardaron ${savedEntries.length} entradas de planilla.`, variant: "default" })
       return savedEntries
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo guardar la planilla.", variant: "destructive" })
@@ -477,7 +480,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/payroll-entries/${id}`, { method: "DELETE" })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Entrada Eliminada", description: "La entrada de planilla ha sido eliminada.", variant: "default" }) // FIX TOAST
+      toast({ title: "Entrada Eliminada", description: "La entrada de planilla ha sido eliminada.", variant: "default" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar la entrada de planilla.", variant: "destructive" })
       throw e
@@ -490,7 +493,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/payroll-entries`, { method: "DELETE", params: { companiaId, periodo: period } })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Planilla Eliminada", description: `Todas las entradas del período ${period} han sido eliminadas.`, variant: "default" }) // FIX TOAST
+      toast({ title: "Planilla Eliminada", description: `Todas las entradas del período ${period} han sido eliminadas.`, variant: "default" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar la planilla del período.", variant: "destructive" })
       throw e
@@ -504,7 +507,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const savedEntries = await apiFetcher<DecimoTercerMes[]>("/api/decimo-entries", { method: "POST", data: entries.map(e => ({...e, companiaId})) })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Décimo Guardado", description: `Se guardaron ${savedEntries.length} cálculos de décimo.`, variant: "default" }) // FIX TOAST
+      toast({ title: "Décimo Guardado", description: `Se guardaron ${savedEntries.length} cálculos de décimo.`, variant: "default" })
       return savedEntries
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo guardar el cálculo de décimo.", variant: "destructive" })
@@ -518,7 +521,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/decimo-entries/${id}`, { method: "DELETE" })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Cálculo Eliminado", description: "El cálculo de décimo ha sido eliminado.", variant: "default" }) // FIX TOAST
+      toast({ title: "Cálculo Eliminado", description: "El cálculo de décimo ha sido eliminado.", variant: "default" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el cálculo de décimo.", variant: "destructive" })
       throw e
@@ -531,7 +534,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/decimo-entries`, { method: "DELETE", params: { companiaId, anio: year } })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Décimo Eliminado", description: `Todos los cálculos del año ${year} han sido eliminados.`, variant: "default" }) // FIX TOAST
+      toast({ title: "Décimo Eliminado", description: `Todos los cálculos del año ${year} han sido eliminados.`, variant: "default" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el décimo del año.", variant: "destructive" })
       throw e
@@ -545,7 +548,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const newPayment = await apiFetcher<SIPEPayment>("/api/sipe-payments", { method: "POST", data: { ...data, companiaId } })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Pago SIPE Guardado", description: `El pago SIPE del período ${newPayment.periodo} ha sido guardado.`, variant: "default" }) // FIX TOAST
+      toast({ title: "Pago SIPE Guardado", description: `El pago SIPE del período ${newPayment.periodo} ha sido guardado.`, variant: "default" })
       return newPayment
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo guardar el pago SIPE.", variant: "destructive" })
@@ -559,7 +562,7 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await apiFetcher<void>(`/api/sipe-payments/${id}`, { method: "DELETE" })
       await fetchCompanyData(companiaId) 
-      toast({ title: "Pago SIPE Eliminado", description: "El pago SIPE ha sido eliminado.", variant: "default" }) // FIX TOAST
+      toast({ title: "Pago SIPE Eliminado", description: "El pago SIPE ha sido eliminado.", variant: "default" })
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "No se pudo eliminar el pago SIPE.", variant: "destructive" })
       throw e
@@ -567,9 +570,9 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [getCompanyId, fetchCompanyData])
 
   // =================================================================
-  // 4. CALCULATION HANDLERS (API calls to business logic)
+  // 4. CALCULATION HANDLERS (Sin cambios)
   // =================================================================
-  
+
   const calculatePayrollApi = useCallback(async (input: Omit<PayrollCalculationInput, 'legalParameters' | 'isrBrackets'> & { currentLegalParameters: LegalParameters[], currentISRBrackets: ISRBracket[] }) => {
     const companiaId = getCompanyId()
     if (!companiaId) throw new Error("No company selected.")
@@ -588,29 +591,22 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
       throw e
     }
   }, [getCompanyId])
-  
-// Archivo: lib/payroll-context.tsx
 
-// 4. CALCULATION HANDLERS (API calls to business logic)
-// FIX: Asegúrate de que los parámetros se definan y usen correctamente.
-
-const calculateDecimoApi = useCallback(async (empleadoId: string, anio: number) => { // <-- Se define 'empleadoId' como parámetro
-    const companiaId = getCompanyId()
-    if (!companiaId) throw new Error("No company selected.")
-    try {
-      const result = await apiFetcher<DecimoTercerMes>("/api/calculations/decimo", { 
-          method: "POST", 
-          // FIX: Usar el parámetro 'empleadoId' y las variables de scope
-          data: { empleadoId, companiaId, anio } 
-      })
-      return result
-    } catch (e: any) {
-      // FIX: Añadir manejo de errores
-      toast({ title: "Error de Cálculo", description: e.message || "No se pudo calcular el Décimo.", variant: "destructive" })
-      throw e
-    }
-}, [getCompanyId]);
-  
+  const calculateDecimoApi = useCallback(async (empleadoId: string, anio: number) => {
+      const companiaId = getCompanyId()
+      if (!companiaId) throw new Error("No company selected.")
+      try {
+        const result = await apiFetcher<DecimoTercerMes>("/api/calculations/decimo", { 
+            method: "POST", 
+            data: { empleadoId, companiaId, anio } 
+        })
+        return result
+      } catch (e: any) {
+        toast({ title: "Error de Cálculo", description: e.message || "No se pudo calcular el Décimo.", variant: "destructive" })
+        throw e
+      }
+  }, [getCompanyId]);
+    
   const calculateSIPEApi = useCallback(async (periodo: string) => {
     const companiaId = getCompanyId()
     if (!companiaId) throw new Error("No company selected.")
@@ -625,7 +621,7 @@ const calculateDecimoApi = useCallback(async (empleadoId: string, anio: number) 
       throw e
     }
   }, [getCompanyId])
-  
+
   // =================================================================
   // 5. CONTEXT VALUE
   // =================================================================
@@ -642,19 +638,18 @@ const calculateDecimoApi = useCallback(async (empleadoId: string, anio: number) 
     decimoEntries,
     sipePayments,
     isLoading,
-    currentUser, 
-    isHydrated, 
+    currentUser,
+    isHydrated,
     currentPeriod,
     currentYear,
-    // FIX: Añadir la función fetchCompanyData al valor del contexto
     fetchCompanyData,
 
-    // Filters (CORREGIDO: usando el nombre de la interfaz)
-    setCurrentCompanyId: handleSelectCompany, 
+    // Actions
+    setCurrentCompanyId: handleSelectCompany,
     selectPeriod,
     selectYear,
 
-    // CRUD (usando los nombres de las implementaciones)
+    // CRUD
     addCompany,
     updateCompany,
     deleteCompany,
@@ -679,17 +674,18 @@ const calculateDecimoApi = useCallback(async (empleadoId: string, anio: number) 
     calculatePayrollApi,
     calculateDecimoApi,
     calculateSIPEApi,
-  }
+  };
 
-  return <PayrollContext.Provider value={value}>{children}</PayrollContext.Provider>
-}
+  return (
+    <PayrollContext.Provider value={value}>{children}</PayrollContext.Provider>
+  );
+};
 
 // =================================================================
-// 6. HOOK
+// 6. HOOK (Sin cambios)
 // =================================================================
 
 export const usePayroll = () => {
-  const context = useContext(PayrollContext)
-  // Eliminamos la verificación de 'undefined' ya que el valor inicial lo garantiza.
-  return context 
-}
+  const context = useContext(PayrollContext);
+  return context;
+};

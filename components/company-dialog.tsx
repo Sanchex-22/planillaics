@@ -1,4 +1,4 @@
-// File: components/company-dialog.tsx (AJUSTADO)
+// File: components/company-dialog.tsx (Corregido)
 
 "use client"
 
@@ -15,9 +15,9 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { useState, useEffect } from "react"
 import { Spinner } from "./ui/spinner"
+import { useToast } from "@/components/ui/use-toast"
 
-
-// Schema de validación
+// Esquema de validación
 const companySchema = z.object({
   nombre: z.string().min(2, { message: "El nombre es requerido." }),
   ruc: z.string().min(5, { message: "El RUC es requerido." }),
@@ -37,21 +37,19 @@ interface CompanyDialogProps {
   setCompanyToEdit: (company: Company | null) => void
 }
 
-export default function CompanyDialog({ isOpen, setIsOpen, companyToEdit, setCompanyToEdit }: CompanyDialogProps) {
+export default function CompanyDialog({
+  isOpen,
+  setIsOpen,
+  companyToEdit,
+  setCompanyToEdit,
+}: CompanyDialogProps) {
   const { addCompany, updateCompany } = usePayroll()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const { toast } = useToast()
 
   const form = useForm<CompanyFormValues>({
     resolver: zodResolver(companySchema),
-    defaultValues: {
-      nombre: "",
-      ruc: "",
-      direccion: "",
-      telefono: "",
-      email: "",
-      representanteLegal: "",
-      activo: true,
-    },
+    defaultValues: {},
   })
 
   useEffect(() => {
@@ -66,35 +64,51 @@ export default function CompanyDialog({ isOpen, setIsOpen, companyToEdit, setCom
     setIsSubmitting(true)
     try {
       if (companyToEdit) {
-        await updateCompany(companyToEdit.id, values) // <<-- Cambio: La llamada al contexto ahora es asíncrona
+        await updateCompany(companyToEdit.id, values)
+        toast({
+          title: "Empresa Actualizada",
+          description: "Los cambios se han guardado correctamente.",
+        })
       } else {
-        await addCompany(values) // <<-- Cambio: La llamada al contexto ahora es asíncrona
+        await addCompany(values)
+        toast({
+          title: "Empresa Creada",
+          description: `La empresa ${values.nombre} ha sido creada.`,
+        })
       }
       form.reset()
       setCompanyToEdit(null)
       setIsOpen(false)
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving company:", error)
+      toast({
+        title: "Error al Guardar",
+        description: error.message || "Ocurrió un error inesperado.",
+        variant: "destructive",
+      })
     } finally {
       setIsSubmitting(false)
     }
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => {
-      setIsOpen(open);
-      if (!open) {
-        setCompanyToEdit(null); // Resetear al cerrar
-        form.reset();
-      }
-    }}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        setIsOpen(open)
+        if (!open) {
+          setCompanyToEdit(null)
+          form.reset()
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>{companyToEdit ? "Editar Empresa" : "Nueva Empresa"}</DialogTitle>
         </DialogHeader>
+
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            {/* Form Fields... (omito por brevedad, pero usa los Field/Input como ya los tienes) */}
             <FormField
               control={form.control}
               name="nombre"
@@ -108,6 +122,7 @@ export default function CompanyDialog({ isOpen, setIsOpen, companyToEdit, setCom
                 </FormItem>
               )}
             />
+
             <FormField
               control={form.control}
               name="ruc"
@@ -121,6 +136,7 @@ export default function CompanyDialog({ isOpen, setIsOpen, companyToEdit, setCom
                 </FormItem>
               )}
             />
+
             <FormField
               control={form.control}
               name="representanteLegal"
@@ -134,7 +150,7 @@ export default function CompanyDialog({ isOpen, setIsOpen, companyToEdit, setCom
                 </FormItem>
               )}
             />
-            
+
             <div className="flex items-center space-x-2 pt-2">
               <FormField
                 control={form.control}
@@ -153,7 +169,6 @@ export default function CompanyDialog({ isOpen, setIsOpen, companyToEdit, setCom
               />
               <Label htmlFor="activo">Activa</Label>
             </div>
-
 
             <DialogFooter className="mt-6">
               <DialogClose asChild>

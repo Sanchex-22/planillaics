@@ -19,6 +19,8 @@ export interface User {
   rol: "super_admin" | "contador"
   companias: string[] // Array of company IDs the user has access to
   activo: boolean
+  imageUrl?: string
+  clerkId?: string| null
 }
 
 export interface Employee {

@@ -17,13 +17,13 @@ import {
 } from "lucide-react"
 import { CompanySelector } from "@/components/company-selector"
 import { usePayroll } from "@/lib/payroll-context"
-import { useClerk } from "@clerk/nextjs"
+import { useClerk } from "@clerk/nextjs" // <-- Solo lo usamos para signOut
 import { Skeleton } from "@/components/ui/skeleton"
 
 const navItems = [
   {
     title: "Dashboard",
-    href: "/",
+    href: "/dashboard",
     icon: LayoutDashboard,
     roles: ["super_admin", "contador"],
   },
@@ -85,16 +85,18 @@ const navItems = [
 
 export function SidebarNav() {
   const pathname = usePathname()
-  const { signOut } = useClerk()
-  const { user } = useClerk()
-  const { currentUser, isHydrated } = usePayroll()
+  const { signOut } = useClerk() // <-- Ya no pedimos 'user' de aquí
+
+  // Obtenemos 'currentUser' (de nuestra DB) y 'currentCompanyId' de usePayroll
+  const { currentUser, isHydrated, currentCompanyId } = usePayroll()
 
   const visibleNavItems = navItems.filter((item) => {
     if (!currentUser) return false
     return item.roles.includes(currentUser.rol)
   })
 
-  if (!isHydrated) {
+  // Esta lógica de esqueleto es correcta y se basa en el contexto
+  if (!isHydrated || !currentCompanyId) {
     return (
       <nav className="flex h-screen flex-col border-r border-border/40 bg-background">
         {/* Header */}
@@ -148,11 +150,13 @@ export function SidebarNav() {
       <div className="flex-1 space-y-1 overflow-y-auto p-3">
         {visibleNavItems.map((item) => {
           const Icon = item.icon
-          const isActive = pathname === item.href
+          const dynamicHref = `/${currentCompanyId}${item.href}`
+          const isActive = pathname.startsWith(dynamicHref)
+          
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={dynamicHref}
               className={cn(
                 "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
                 isActive
@@ -172,12 +176,16 @@ export function SidebarNav() {
         })}
       </div>
 
+      {/* ====================================================================== */}
+      {/* SECCIÓN CORREGIDA */}
+      {/* ====================================================================== */}
       <div className="border-t border-border/40 bg-muted/30">
         <div className="p-3">
           <div className="flex items-center gap-3 rounded-lg px-3 py-3 transition-colors duration-200 hover:bg-accent/50">
             <div className="relative">
               <img
-                src={user?.imageUrl || "/default-avatar.png"}
+                // CAMBIO 1: Usar 'currentUser.image' (de tu DB) en lugar de 'user.imageUrl' (de Clerk)
+                src={currentUser?.imageUrl || "/default-avatar.png"}
                 alt="User avatar"
                 width={40}
                 height={40}
@@ -187,10 +195,12 @@ export function SidebarNav() {
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
               <p className="truncate text-sm font-semibold leading-none text-foreground">
-                {user?.firstName || "Usuario"}
+                {/* CAMBIO 2: Usar 'currentUser.nombre' en lugar de 'user.firstName' */}
+                {currentUser?.nombre || "Usuario"}
               </p>
               <p className="mt-1.5 truncate text-xs leading-none text-muted-foreground">
-                {user?.emailAddresses[0]?.emailAddress || "email@example.com"}
+                {/* CAMBIO 3: Usar 'currentUser.email' en lugar de 'user.emailAddresses' */}
+                {currentUser?.email || "email@example.com"}
               </p>
             </div>
           </div>
