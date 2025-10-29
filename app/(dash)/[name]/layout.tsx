@@ -9,6 +9,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db/db";
 import { NoAccessPage } from "@/components/no-access-page";
+import { UserProvider } from "@/lib/user-context";
 
 export default async function Layout({
   children,
@@ -91,12 +92,14 @@ export default async function Layout({
           initialCompanies={initialCompanies}
           currentCompanyId={companyIdFromUrl}
         >
-          <div className="flex h-screen bg-background overflow-hidden">
-            <SidebarNav />
-            <main className="flex-1 p-8 overflow-auto">
-              <div>{children}</div>
-            </main>
-          </div>
+          <UserProvider>
+            <div className="flex h-screen bg-background overflow-hidden">
+              <SidebarNav />
+              <main className="flex-1 p-8 overflow-auto">
+                <div>{children}</div>
+              </main>
+            </div>
+          </UserProvider>
         </PayrollProvider>
       </Suspense>
       <Toaster />

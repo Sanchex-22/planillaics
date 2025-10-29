@@ -2,74 +2,23 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/db';
 import { auth } from '@clerk/nextjs/server';
 
-// Definir la jerarquía de roles
-const roleHierarchy = {
-  super_admin: 3,
-  admin: 2,
-  contador: 1,
-  user: 0,
-} as const; // 'as const' para tipos estrictos
-
-type Role = keyof typeof roleHierarchy;
-
-// --- MÉTODO PATCH ACTUALIZADO ---
+// PATCH /api/users/[id]
 export async function PATCH(
   request: Request, 
   { params }: { params: { id: string } }
 ) {
   try {
-    // 1. Obtener el ID de Clerk del usuario que HACE LA SOLICITUD
-    const { userId: requestingClerkId } = await auth();
-    if (!requestingClerkId) {
+    const { userId: requestingUserId } = await auth();
+    if (!requestingUserId) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
-
-    // 2. Obtener el perfil de DB del usuario que HACE LA SOLICITUD
-    const requestingUser = await db.user.findUnique({
-      where: { clerkId: requestingClerkId },
-    });
-
-    if (!requestingUser) {
-      return new NextResponse("Forbidden: Usuario no encontrado en DB", { status: 403 });
-    }
-
-    const requestingUserLevel = roleHierarchy[requestingUser.rol as Role] || 0;
-
-    // --- Lógica de la API ---
+    
     const data = await request.json();
     const userIdToUpdate = params.id;
+
+    // --- LÓGICA ACTUALIZADA ---
+    // Destructuramos todos los campos posibles del body
     const { rol, activo, clerkId, companiaIdToLink } = data;
-
-    // 3. VALIDACIÓN DE SEGURIDAD (Si se está cambiando el rol)
-    if (rol) {
-      const newRole = rol as Role;
-      const newRoleLevel = roleHierarchy[newRole] || 0;
-
-      // REGLA 1: Solo un super_admin puede asignar 'super_admin'
-      if (newRole === 'super_admin' && requestingUser.rol !== 'super_admin') {
-        return new NextResponse("Forbidden: Solo un super_admin puede asignar este rol.", { status: 403 });
-      }
-
-      // REGLA 2: No se puede asignar un rol MÁS ALTO que el propio
-      if (newRoleLevel > requestingUserLevel) {
-        return new NextResponse("Forbidden: No puede asignar un rol superior al suyo.", { status: 403 });
-      }
-
-      // REGLA 3 (para Edición): Un admin no puede editar a otro admin o super_admin
-      if (!companiaIdToLink) { // Solo aplica en modo EDICIÓN
-        const targetUser = await db.user.findUnique({ where: { id: userIdToUpdate } });
-        if (targetUser) {
-          const targetUserCurrentLevel = roleHierarchy[targetUser.rol as Role] || 0;
-          
-          // Si el usuario objetivo tiene un nivel >= y el solicitante NO es super_admin
-          if (targetUserCurrentLevel >= requestingUserLevel && requestingUser.rol !== 'super_admin') {
-             return new NextResponse("Forbidden: No puede editar usuarios de nivel igual o superior.", { status: 403 });
-          }
-        }
-      }
-    }
-    // --- FIN DE LA VALIDACIÓN DE SEGURIDAD ---
-
 
     let updatedUser;
 
@@ -78,7 +27,7 @@ export async function PATCH(
       updatedUser = await db.user.update({
         where: { id: userIdToUpdate },
         data: {
-          rol: rol, 
+          rol: rol, // Asigna el rol
           companias: {
             connect: { id: companiaIdToLink }
           }
@@ -86,6 +35,8 @@ export async function PATCH(
       });
     } else {
       // Lógica para ACTUALIZAR un usuario existente
+      
+      // 1. Construir el payload de datos dinámicamente
       const updateData: { 
         rol?: string, 
         activo?: boolean, 
@@ -94,21 +45,28 @@ export async function PATCH(
 
       if (rol) updateData.rol = rol;
       if (activo !== undefined) updateData.activo = activo;
+
+      // 2. Manejar el clerkId (permite setear o limpiar)
       if (clerkId !== undefined) {
+        // Si es un string vacío, lo seteamos a null en la DB
         updateData.clerkId = clerkId === "" ? null : clerkId;
       }
 
+      // 3. Ejecutar la actualización en Prisma
       updatedUser = await db.user.update({
         where: { id: userIdToUpdate },
-        data: updateData,
+        data: updateData, // Pasa los datos dinámicos
       });
     }
+    // --- FIN DE LA ACTUALIZACIÓN ---
 
+    // Devolver solo datos seguros
     const { hashedPassword, ...safeUser } = updatedUser;
     return NextResponse.json(safeUser);
 
   } catch (error) {
     console.error('Error updating user:', error);
+    // Manejo de error si el clerkId ya existe (Unique constraint)
     // @ts-ignore
     if (error.code === 'P2002' && error.meta?.target?.includes('clerkId')) {
       return NextResponse.json({ error: 'Ese Clerk ID ya está en uso por otro usuario.' }, { status: 409 });
@@ -117,7 +75,7 @@ export async function PATCH(
   }
 }
 
-// ... (El método DELETE no cambia) ...
+// ... (El método DELETE para desvincular sigue igual) ...
 export async function DELETE(
   request: Request, 
   { params }: { params: { id: string } }
@@ -136,9 +94,7 @@ export async function DELETE(
         return NextResponse.json({ error: 'Missing companiaIdToUnlink' }, { status: 400 });
     }
 
-    // TODO: Añadir lógica de permisos aquí también (¿Quién puede desvincular?)
-    // Por ahora, se asume que si puede ver la página, puede desvincular.
-
+    // Lógica para DESVINCULAR usuario de compañía
     await db.user.update({
         where: { id: userIdToUnlink },
         data: {

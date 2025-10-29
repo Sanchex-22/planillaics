@@ -183,15 +183,11 @@ export function SidebarNav() {
         })}
       </div>
 
-      {/* ====================================================================== */}
-      {/* SECCIÓN CORREGIDA */}
-      {/* ====================================================================== */}
       <div className="border-t border-border/40 bg-muted/30">
         <div className="p-3">
           <div className="flex items-center gap-3 rounded-lg px-3 py-3 transition-colors duration-200 hover:bg-accent/50">
             <div className="relative">
               <img
-                // CAMBIO 1: Usar 'currentUser.image' (de tu DB) en lugar de 'user.imageUrl' (de Clerk)
                 src={currentUser?.imageUrl || "/default-avatar.png"}
                 alt="User avatar"
                 width={40}
