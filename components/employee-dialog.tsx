@@ -22,7 +22,7 @@ import { Separator } from "./ui/separator"
 import { toast } from "./ui/use-toast"
 import { Switch } from "./ui/switch"
 
-// Esquema de validación Zod (Asegúrate de que este esquema coincida con tu Employee type)
+// Esquema de validación Zod
 const employeeSchema = z.object({
   companiaId: z.string().optional(),
   cedula: z.string().min(5, { message: "La cédula es requerida." }),
@@ -52,7 +52,6 @@ interface EmployeeDialogProps {
   setEmployeeToEdit: (employee: Employee | null) => void
 }
 
-// FIX DE EXPORTACIÓN: Exportación con nombre
 export function EmployeeDialog({ isOpen, setIsOpen, employeeToEdit, setEmployeeToEdit }: EmployeeDialogProps) {
   const { addEmployee, updateEmployee, currentCompany } = usePayroll()
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -83,27 +82,53 @@ export function EmployeeDialog({ isOpen, setIsOpen, employeeToEdit, setEmployeeT
 
   useEffect(() => {
     if (employeeToEdit) {
-        // Formatear la fecha string a Date para el formulario
-        const dateObject = parseISO(employeeToEdit.fechaIngreso);
-        
-        // Cargar deducciones personalizadas
-        setDeductions(employeeToEdit.otrasDeduccionesPersonalizadas || []);
-        
-        form.reset({
-            ...employeeToEdit,
-            fechaIngreso: dateObject,
-            salarioBase: employeeToEdit.salarioBase,
-            deduccionesBancarias: employeeToEdit.deduccionesBancarias || 0,
-            prestamos: employeeToEdit.prestamos || 0,
-            // Asegurar que las listas de meses sean arrays o undefined
-            mesesDeduccionesBancarias: employeeToEdit.mesesDeduccionesBancarias || [],
-            mesesPrestamos: employeeToEdit.mesesPrestamos || [],
-        });
+      // Formatear la fecha string a Date para el formulario
+      const dateObject = parseISO(employeeToEdit.fechaIngreso);
+      
+      // Cargar deducciones personalizadas
+      setDeductions(employeeToEdit.otrasDeduccionesPersonalizadas || []);
+      
+      // Normalizar valores para que coincidan con el esquema del formulario (evitar nulls)
+      form.reset({
+          nombre: employeeToEdit.nombre ?? "",
+          apellido: employeeToEdit.apellido ?? "",
+          cedula: employeeToEdit.cedula ?? "",
+          fechaIngreso: dateObject,
+          salarioBase: employeeToEdit.salarioBase ?? 0,
+          departamento: employeeToEdit.departamento ?? "",
+          cargo: employeeToEdit.cargo ?? "",
+          estado: (employeeToEdit.estado === "activo" || employeeToEdit.estado === "inactivo") ? employeeToEdit.estado : "activo",
+          email: employeeToEdit.email ?? "",
+          telefono: employeeToEdit.telefono ?? "",
+          direccion: employeeToEdit.direccion ?? "",
+          deduccionesBancarias: employeeToEdit.deduccionesBancarias ?? 0,
+          mesesDeduccionesBancarias: employeeToEdit.mesesDeduccionesBancarias || [],
+          prestamos: employeeToEdit.prestamos ?? 0,
+          mesesPrestamos: employeeToEdit.mesesPrestamos || [],
+          otrasDeduccionesPersonalizadas: employeeToEdit.otrasDeduccionesPersonalizadas || [],
+          companiaId: employeeToEdit.companiaId ?? currentCompany?.id,
+      });
     } else {
-      form.reset()
+      // Resetea a los valores por defecto (incluyendo el ID de la compañía actual)
+      form.reset({
+        companiaId: currentCompany?.id,
+        cedula: "",
+        nombre: "",
+        apellido: "",
+        fechaIngreso: new Date(),
+        salarioBase: 0,
+        departamento: "",
+        cargo: "",
+        estado: "activo",
+        deduccionesBancarias: 0,
+        mesesDeduccionesBancarias: [],
+        prestamos: 0,
+        mesesPrestamos: [],
+        otrasDeduccionesPersonalizadas: [],
+      })
       setDeductions([]);
     }
-  }, [employeeToEdit, form])
+  }, [employeeToEdit, form, currentCompany]) // Añadir currentCompany a las dependencias
 
   const onSubmit = async (values: EmployeeFormValues) => {
     setIsSubmitting(true)
@@ -121,7 +146,6 @@ export function EmployeeDialog({ isOpen, setIsOpen, employeeToEdit, setEmployeeT
 
     try {
       if (employeeToEdit) {
-        // FIX ASÍNCRONO: Usar await
         await updateEmployee(employeeToEdit.id, apiData) 
         toast({ title: "Empleado Actualizado", description: "Los datos del empleado han sido guardados." })
       } else {
@@ -129,7 +153,6 @@ export function EmployeeDialog({ isOpen, setIsOpen, employeeToEdit, setEmployeeT
             toast({ title: "Error", description: "Debe seleccionar una compañía.", variant: "destructive" })
             return
         }
-        // FIX ASÍNCRONO: Usar await
         await addEmployee({ ...apiData, companiaId: currentCompany.id } as Omit<Employee, 'id'>)
         toast({ title: "Empleado Creado", description: "El nuevo empleado ha sido registrado." })
       }
@@ -145,10 +168,9 @@ export function EmployeeDialog({ isOpen, setIsOpen, employeeToEdit, setEmployeeT
   }
 
   /*
-  Lógica de adición/remoción de Deducciones Personalizadas (Omitida por brevedad, pero debe estar aquí)
-  **Este comentario de bloque resuelve el error de sintaxis que tenías.**
+   Aquí iría la lógica para añadir, editar y
+   remover deducciones personalizadas del estado `deductions`
   */
-  // O solo: /* Lógica de adición/remoción de Deducciones Personalizadas (Omitida por brevedad, pero debe estar aquí) */
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => {
@@ -167,11 +189,47 @@ export function EmployeeDialog({ isOpen, setIsOpen, employeeToEdit, setEmployeeT
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <h3 className="text-lg font-semibold border-b pb-1">Información Básica</h3>
             
-            {/* Campos de Nombre, Apellido, Cédula */}
+            {/* Campos de Nombre, Apellido, Cédula -- CORREGIDOS */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <FormField name="nombre" render={({ field }) => ( <Input placeholder="Nombre" {...field} />)} />
-              <FormField name="apellido" render={({ field }) => (<Input placeholder="Apellido" {...field} />)} />
-              <FormField name="cedula" render={({ field }) => (<Input placeholder="Cédula" {...field} />)} />
+              <FormField
+                control={form.control}
+                name="nombre"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nombre *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="John" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="apellido"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Apellido *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Doe" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="cedula"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Cédula *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="8-123-456" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </div>
 
             {/* Campos de Salario Base, Fecha Ingreso, Estado */}
@@ -245,10 +303,34 @@ export function EmployeeDialog({ isOpen, setIsOpen, employeeToEdit, setEmployeeT
             </div>
 
             <h3 className="text-lg font-semibold border-b pb-1 pt-4">Detalles Laborales</h3>
-            {/* Campos de Departamento y Cargo */}
+            {/* Campos de Departamento y Cargo -- CORREGIDOS */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField name="departamento" render={({ field }) => (<Input placeholder="Departamento" {...field} />)} />
-                <FormField name="cargo" render={({ field }) => (<Input placeholder="Cargo" {...field} />)} />
+              <FormField
+                control={form.control}
+                name="departamento"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Departamento *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Tecnología" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="cargo"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Cargo *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Desarrollador" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </div>
 
 
@@ -273,17 +355,17 @@ export function EmployeeDialog({ isOpen, setIsOpen, employeeToEdit, setEmployeeT
                 control={form.control}
                 name="mesesDeduccionesBancarias"
                 render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>Meses de Aplicación (1-12)</FormLabel>
-                        <FormControl>
-                            {/* Componente para seleccionar los meses (Asumo que usa un multi-select) */}
-                            <Input placeholder="Ej: 1, 4, 7 (Meses separados por coma)" value={field.value?.join(', ') || ''} onChange={e => {
-                                const numbers = e.target.value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 1 && n <= 12);
-                                field.onChange(numbers);
-                            }} />
-                        </FormControl>
-                        <FormMessage />
-                    </FormItem>
+                  <FormItem>
+                    <FormLabel>Meses de Aplicación (1-12)</FormLabel>
+                    <FormControl>
+                      {/* Componente para seleccionar los meses (Asumo que usa un multi-select) */}
+                      <Input placeholder="Ej: 1, 4, 7 (Meses separados por coma)" value={field.value?.join(', ') || ''} onChange={e => {
+                        const numbers = e.target.value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 1 && n <= 12);
+                        field.onChange(numbers);
+                      }} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
                 )}
               />
             </div>
@@ -305,16 +387,16 @@ export function EmployeeDialog({ isOpen, setIsOpen, employeeToEdit, setEmployeeT
                 control={form.control}
                 name="mesesPrestamos"
                 render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>Meses de Aplicación (1-12)</FormLabel>
-                        <FormControl>
-                            <Input placeholder="Ej: 3, 6, 9" value={field.value?.join(', ') || ''} onChange={e => {
-                                const numbers = e.target.value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 1 && n <= 12);
-                                field.onChange(numbers);
-                            }} />
-                        </FormControl>
-                        <FormMessage />
-                    </FormItem>
+                  <FormItem>
+                    <FormLabel>Meses de Aplicación (1-12)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Ej: 3, 6, 9" value={field.value?.join(', ') || ''} onChange={e => {
+                        const numbers = e.target.value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 1 && n <= 12);
+                        field.onChange(numbers);
+                      }} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
                 )}
               />
             </div>
