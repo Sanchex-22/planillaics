@@ -4,42 +4,30 @@ import type React from "react";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { Toaster } from "@/components/ui/toaster";
 import { PayrollProvider } from "@/lib/payroll-context";
-import { Suspense } from "react";
-import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
-import { db } from "@/lib/db/db";
-import { NoAccessPage } from "@/components/no-access-page";
 import { UserProvider } from "@/lib/user-context";
+import { Suspense } from "react";
+import { NoAccessPage } from "@/components/no-access-page";
+import { getLayoutData } from "@/lib/data";
+import Loader from "@/components/loaders/loader";
 
 export default async function Layout({
   children,
   params,
 }: Readonly<{
   children: React.ReactNode;
-  params: { name: string }; // 'name' es el ID de la compañía en la URL
+  params: { name: string };
 }>) {
-  // 1. Obtener el clerkId del usuario autenticado
-  const { userId: clerkId, sessionClaims } = await auth();
-  const companyIdFromUrl = params.name;
 
-  if (!clerkId) {
-    redirect("/sign-in");
-  }
+  // 2. LLAMAR A LA FUNCIÓN DE LÓGICA
+  const { 
+    initialUser, 
+    initialCompanies, 
+    currentCompanyId, 
+    error 
+  } = await getLayoutData(params.name);
 
-  // 2. Buscar al usuario en TU base de datos (Prisma)
-  const userInDb = await db.user.findUnique({
-    where: {
-      clerkId: clerkId,
-    },
-    include: {
-      companias: true, // Pedimos los objetos completos de las compañías
-    },
-  });
-
-  // 3. Lógica de Autorización
-  // CASO B: Usuario no existe en DB o no tiene compañías asignadas
-  if (!userInDb || userInDb.companias.length === 0) {
-    console.log(`Acceso denegado para clerkId: ${clerkId}. No encontrado en DB o sin compañías.`);
+  // 3. MANEJAR EL CASO DE NO ACCESO
+  if (error === 'no-access' || !initialUser || !initialCompanies) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <NoAccessPage />
@@ -48,49 +36,14 @@ export default async function Layout({
     );
   }
 
-  // CASO A: El usuario existe y tiene compañías
-  const userCompanyIds = userInDb.companias.map((c) => c.id);
-
-  // 4. Validar si tiene acceso a la compañía de la URL
-  if (!userCompanyIds.includes(companyIdFromUrl)) {
-    console.log(`Usuario ${clerkId} intentó acceder a ${companyIdFromUrl} sin permiso.`);
-    const firstCompanyId = userInDb.companias[0].id;
-    redirect(`/${firstCompanyId}/dashboard`);
-  }
-
-  const initialCompanies = userInDb.companias.map(c => ({
-    ...c,
-    // (A) Convertir Date a string (NUEVO CAMBIO)
-    fechaCreacion: c.fechaCreacion.toISOString(), 
-    
-    // (B) Convertir null a undefined (CAMBIO ANTERIOR)
-    email: c.email ?? undefined,
-    direccion: c.direccion ?? undefined,
-    telefono: c.telefono ?? undefined,
-    representanteLegal: c.representanteLegal ?? undefined,
-  }));
-
-  // 2. Transformamos el objeto de usuario
-  // Esto soluciona el error en 'initialUser'
-  const initialUser = {
-    ...userInDb,
-    // (A) Hacemos una aserción de tipo para 'rol' (CAMBIO ANTERIOR)
-    // rol: userInDb.rol as ("super_admin" | "moderator" | "admin" ), 
-    rol: sessionClaims?.o?.rol, 
-    // (B) Pasamos solo los IDs de las compañías (NUEVO CAMBIO)
-    companias: userInDb.companias.map(c => c.id), 
-  };
-  // ----- FIN DE LA CORRECCIÓN -----
-
-
-  // Ahora pasamos los datos YA TRANSFORMADOS al Provider.
+  // 4. RENDERIZAR (todo igual que antes)
   return (
     <>
-      <Suspense fallback={<div>Loading...</div>}>
+      <Suspense fallback={<div className="h-screen"><Loader/></div>}>
         <PayrollProvider
           initialUser={initialUser}
           initialCompanies={initialCompanies}
-          currentCompanyId={companyIdFromUrl}
+          currentCompanyId={currentCompanyId}
         >
           <UserProvider>
             <div className="flex h-screen bg-background overflow-hidden">

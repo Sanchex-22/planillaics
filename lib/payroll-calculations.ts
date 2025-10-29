@@ -1,502 +1,599 @@
-import type { Employee, LegalParameters, ISRBracket, PayrollEntry } from "./types"
+// payroll-calculations.ts
+// Integrado COMPLETO con reglas Panamá (2025), cálculo de décimo, ISR, CSS, SE y SIPE.
+// Incluye funciones por empleado, totales de empresa y ALIAS de compatibilidad
+// para conservar nombres de campos antiguos (totalAPagar, totalDecimoEmpleado, etc.).
 
-// La interfaz PayrollCalculationInput se mantiene igual
+/* ------------------------------------------------------
+ * Tipos
+ * ------------------------------------------------------ */
+export interface Employee {
+  id: string | number;
+  salarioBase: number; // mensual
+  fechaContratacion?: string; // ISO YYYY-MM-DD (opcional)
+}
+
+export interface LegalParameters {
+  tipo: string;       // p.ej. "ss_empleado", "ss_empleador", "se_empleado", "se_empleador", "ss_empleado_decimo", "riesgo_profesional"
+  porcentaje: number; // tasa en %
+  activo: boolean;
+}
+
+export interface ISRBracket {
+  limite?: number;     // límite superior del tramo; si falta o es NaN, se considera abierto
+  tasa: number;        // porcentaje del tramo
+}
+
+export interface PayrollEntry {
+  empleadoId: string | number;
+  periodo: string;     // "YYYY-MM"
+  salarioBruto: number;
+  estado?: "borrador" | "confirmado" | string;
+}
+
+/* ------------------------------------------------------
+ * Utilidades
+ * ------------------------------------------------------ */
+const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+export function assertPeriodo(p: string) {
+  if (!PERIOD_RE.test(p)) throw new Error(`periodo inválido: "${p}" (formato esperado YYYY-MM)`);
+}
+
+export function round(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+const toCents = (n: number) => Math.round((n + Number.EPSILON) * 100);
+const fromCents = (c: number) => Math.round(c) / 100;
+
+const monthFromPeriodo = (periodo: string) => parseInt(periodo.split("-")[1], 10);
+export const isDecimoMonth = (periodo: string) => {
+  const m = monthFromPeriodo(periodo);
+  return m === 4 || m === 8 || m === 12;
+};
+
+export function calculateSIPEPaymentDate(periodo: string): string {
+  // Fecha límite simple = último día del mes del periodo
+  assertPeriodo(periodo);
+  const [y, m] = periodo.split("-").map((s) => parseInt(s, 10));
+  const lastDay = new Date(y, m, 0);
+  const yyyy = lastDay.getFullYear();
+  const mm = String(lastDay.getMonth() + 1).padStart(2, "0");
+  const dd = String(lastDay.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/* ------------------------------------------------------
+ * Tasas Panamá (2025) + overrides
+ * ------------------------------------------------------ */
+export interface PanamaRates {
+  ssEmpleado: number;         // 9.75 (regular)
+  ssEmpleador: number;        // 13.25 (desde 2025-04-01)
+  seEmpleado: number;         // 1.25 (regular)
+  seEmpleador: number;        // 1.5 (regular)
+  ssEmpleadoDecimo: number;   // 7.25 (empleado, solo décimo)
+  seAplicaEnDecimo: boolean;  // por defecto EXENTO en décimo
+  riesgoProfesional: number;  // % patronal (regular)
+  riesgoProfesionalAplicaEnDecimo: boolean; // por defecto false
+}
+
+export const DEFAULT_PANAMA_RATES: PanamaRates = {
+  ssEmpleado: 9.75,
+  ssEmpleador: 13.25,
+  seEmpleado: 1.25,
+  seEmpleador: 1.5,
+  ssEmpleadoDecimo: 7.25,
+  seAplicaEnDecimo: false,
+  riesgoProfesional: 0,
+  riesgoProfesionalAplicaEnDecimo: false,
+};
+
+function buildRates(legalParameters?: LegalParameters[]): PanamaRates {
+  // Permite override desde parámetros legales activos
+  const r = { ...DEFAULT_PANAMA_RATES };
+  if (Array.isArray(legalParameters)) {
+    const map = new Map<string, number>();
+    for (const p of legalParameters) {
+      if (p && p.activo) map.set(p.tipo, p.porcentaje);
+    }
+    r.ssEmpleado = map.get("ss_empleado") ?? r.ssEmpleado;
+    r.ssEmpleador = map.get("ss_empleador") ?? r.ssEmpleador;
+    r.seEmpleado = map.get("se_empleado") ?? r.seEmpleado;
+    r.seEmpleador = map.get("se_empleador") ?? r.seEmpleador;
+    r.ssEmpleadoDecimo = map.get("ss_empleado_decimo") ?? r.ssEmpleadoDecimo;
+    r.riesgoProfesional = map.get("riesgo_profesional") ?? r.riesgoProfesional;
+    // Flags opcionales (usar 1/0 para on/off)
+    const seDec = map.get("se_decimo_aplica");
+    if (typeof seDec === "number") r.seAplicaEnDecimo = seDec > 0;
+    const rpDec = map.get("riesgo_profesional_decimo_aplica");
+    if (typeof rpDec === "number") r.riesgoProfesionalAplicaEnDecimo = rpDec > 0;
+  }
+  return r;
+}
+
+/* ------------------------------------------------------
+ * ISR Panamá
+ * ------------------------------------------------------ */
+export function computeISRAnualPanama(baseAnual: number): number {
+  // Tramos DGI vigentes: 0–11,000 = 0%; 11,000–50,000 = 15% excedente; >50,000 = 5,850 + 25% excedente
+  if (baseAnual <= 11000) return 0;
+  if (baseAnual <= 50000) return round((baseAnual - 11000) * 0.15);
+  return round(5850 + (baseAnual - 50000) * 0.25);
+}
+
+/* ------------------------------------------------------
+ * Nómina regular (mensual/quincenal)
+ * ------------------------------------------------------ */
 export interface PayrollCalculationInput {
-  employee: Employee
-  periodo: string
-  tipoPeriodo?: "quincenal" | "mensual"
-  horasExtras?: number
-  bonificaciones?: number
-  otrosIngresos?: number
-  otrasRetenciones?: number
-  legalParameters: LegalParameters[]
-  isrBrackets: ISRBracket[]
+  employee: Employee;
+  periodo: string;
+  tipoPeriodo?: "quincenal" | "mensual";
+  horasExtras?: number;
+  bonificaciones?: number;
+  otrosIngresos?: number;
+  otrasRetenciones?: number;
+  legalParameters?: LegalParameters[];
 }
 
-// La interfaz PayrollCalculationResult se mantiene igual
 export interface PayrollCalculationResult {
-  salarioBruto: number
-  seguroSocialEmpleado: number
-  seguroEducativo: number
-  isr: number
-  deduccionesBancarias: number
-  prestamos: number
-  otrasDeduccionesPersonalizadas: number
-  otrasRetenciones: number
-  totalDeducciones: number
-  salarioNeto: number
-  seguroSocialEmpleador: number
-  seguroEducativoEmpleador: number
-  riesgoProfesional: number
+  periodo: string;
+  tipoPeriodo: "quincenal" | "mensual";
+  salarioBasePeriodo: number;
+  salarioBruto: number;
+  seguroSocialEmpleado: number;
+  seguroSocialEmpleador: number;
+  seguroEducativoEmpleado: number;
+  seguroEducativoEmpleador: number;
+  riesgoProfesional: number;
+  isr: number;
+  otrasRetenciones: number;
+  salarioNeto: number;
 }
 
-// La función calculatePayroll se mantiene igual (calcula planilla regular)
 export function calculatePayroll(input: PayrollCalculationInput): PayrollCalculationResult {
   const {
     employee,
     periodo,
-    tipoPeriodo = "quincenal",
+    tipoPeriodo = "mensual",
     horasExtras = 0,
     bonificaciones = 0,
     otrosIngresos = 0,
     otrasRetenciones = 0,
     legalParameters,
-    isrBrackets,
-  } = input
+  } = input;
 
-  const round = (num: number) => Math.round(num * 100) / 100
+  assertPeriodo(periodo);
+  const rates = buildRates(legalParameters);
 
-  const currentMonth = Number.parseInt(periodo.split("-")[1])
+  let salarioBasePeriodo = employee.salarioBase;
+  if (tipoPeriodo === "quincenal") salarioBasePeriodo = employee.salarioBase / 2;
 
-  let salarioBasePeriodo = employee.salarioBase
-  if (tipoPeriodo === "quincenal") {
-    salarioBasePeriodo = employee.salarioBase / 2
-  }
+  const salarioBruto = round(salarioBasePeriodo + horasExtras + bonificaciones + otrosIngresos);
 
-  const salarioBruto = round(salarioBasePeriodo + horasExtras + bonificaciones + otrosIngresos)
+  const seguroSocialEmpleado = round(salarioBruto * (rates.ssEmpleado / 100));
+  const seguroSocialEmpleador = round(salarioBruto * (rates.ssEmpleador / 100));
+  const seguroEducativoEmpleado = round(salarioBruto * (rates.seEmpleado / 100));
+  const seguroEducativoEmpleador = round(salarioBruto * (rates.seEmpleador / 100));
+  const riesgoProfesional = round(salarioBruto * (rates.riesgoProfesional / 100));
 
-  const seguroSocialEmpleadoRate =
-    legalParameters.find((p) => p.tipo === "seguro_social_empleado" && p.activo)?.porcentaje || 9.75
-  const seguroSocialEmpleadorRate =
-    legalParameters.find((p) => p.tipo === "seguro_social_empleador" && p.activo)?.porcentaje || 13.25
-  const seguroEducativoRate = legalParameters.find((p) => p.tipo === "seguro_educativo" && p.activo)?.porcentaje || 1.25
-  const seguroEducativoEmpleadorRate =
-    legalParameters.find((p) => p.tipo === "seguro_educativo_empleador" && p.activo)?.porcentaje || 1.5
-  const riesgoProfesionalRate =
-    legalParameters.find((p) => p.tipo === "riesgo_profesional" && p.activo)?.porcentaje || 0.98
+  // ISR: anualizado con 13 salarios (12 + décimo) y prorrateado al período
+  const isrAnual = computeISRAnualPanama(employee.salarioBase * 13);
+  const isrPeriodo = tipoPeriodo === "quincenal" ? round(isrAnual / 24) : round(isrAnual / 12);
 
-  const seguroSocialEmpleado = round((salarioBruto * seguroSocialEmpleadoRate) / 100)
-  const seguroSocialEmpleador = round((salarioBruto * seguroSocialEmpleadorRate) / 100)
-
-  const seguroEducativo = round((salarioBruto * seguroEducativoRate) / 100)
-  const seguroEducativoEmpleador = round((salarioBruto * seguroEducativoEmpleadorRate) / 100)
-
-  const riesgoProfesional = round((salarioBruto * riesgoProfesionalRate) / 100)
-
-  // Nota: Para ISR regular, la base es (Salario Base * 12) + DTM (Salario Base) = Salario Base * 13,
-  // pero el cálculo del DTM se ajusta en la función calculateDecimoTercerMesWithDeductions
-  const salarioMensual = employee.salarioBase
-  const salarioAnual = salarioMensual * 13
-
-  let isrAnual = 0
-  if (salarioAnual > 11000) {
-    if (salarioAnual <= 50000) {
-      isrAnual = ((salarioAnual - 11000) * 15) / 100
-    } else {
-      isrAnual = 5850 + ((salarioAnual - 50000) * 25) / 100
-    }
-  }
-
-  let isr = round(isrAnual / 26)
-  if (tipoPeriodo === "mensual") {
-    isr = round(isrAnual / 13)
-  }
-
-  const shouldApplyDeduccionesBancarias =
-    !employee.mesesDeduccionesBancarias ||
-    employee.mesesDeduccionesBancarias.length === 0 ||
-    employee.mesesDeduccionesBancarias.includes(currentMonth)
-
-  const shouldApplyPrestamos =
-    !employee.mesesPrestamos || employee.mesesPrestamos.length === 0 || employee.mesesPrestamos.includes(currentMonth)
-
-  let deduccionesBancarias = shouldApplyDeduccionesBancarias ? employee.deduccionesBancarias || 0 : 0
-  let prestamos = shouldApplyPrestamos ? employee.prestamos || 0 : 0
-
-  if (tipoPeriodo === "quincenal") {
-    deduccionesBancarias = round(deduccionesBancarias / 2)
-    prestamos = round(prestamos / 2)
-  }
-
-  let otrasDeduccionesPersonalizadas = 0
-  if (employee.otrasDeduccionesPersonalizadas && employee.otrasDeduccionesPersonalizadas.length > 0) {
-    otrasDeduccionesPersonalizadas = round(
-      employee.otrasDeduccionesPersonalizadas
-        .filter((d) => {
-          if (!d.activo) return false
-          if (!d.mesesAplicacion || d.mesesAplicacion.length === 0) return true
-          return d.mesesAplicacion.includes(currentMonth)
-        })
-        .reduce((sum, d) => {
-          let monto = 0
-          if (d.tipo === "fijo") {
-            monto = d.monto
-          } else {
-            monto = (salarioBruto * d.monto) / 100
-          }
-          if (tipoPeriodo === "quincenal") {
-            monto = monto / 2
-          }
-          return sum + monto
-        }, 0),
-    )
-  }
-
-  const totalDeducciones = round(
-    seguroSocialEmpleado +
-      seguroEducativo +
-      isr +
-      deduccionesBancarias +
-      prestamos +
-      otrasDeduccionesPersonalizadas +
-      otrasRetenciones,
-  )
-
-  const salarioNeto = round(salarioBruto - totalDeducciones)
+  const descuentosEmpleado = round(
+    seguroSocialEmpleado + seguroEducativoEmpleado + isrPeriodo + (otrasRetenciones || 0)
+  );
+  const salarioNeto = round(salarioBruto - descuentosEmpleado);
 
   return {
+    periodo,
+    tipoPeriodo,
+    salarioBasePeriodo: round(salarioBasePeriodo),
     salarioBruto,
     seguroSocialEmpleado,
-    seguroEducativo,
-    isr,
-    deduccionesBancarias,
-    prestamos,
-    otrasDeduccionesPersonalizadas,
-    otrasRetenciones,
-    totalDeducciones,
-    salarioNeto,
     seguroSocialEmpleador,
+    seguroEducativoEmpleado,
     seguroEducativoEmpleador,
     riesgoProfesional,
-  }
+    isr: isrPeriodo,
+    otrasRetenciones: round(otrasRetenciones || 0),
+    salarioNeto,
+  };
 }
 
-// CORRECCIÓN: La fórmula del DTM Bruto es (Total Ingresos / 12)
-export function calculateDecimoTercerMes(
-  employee: Employee,
-  payrollEntries: PayrollEntry[],
-  year: number,
-): {
-  salarioPromedio: number
-  mesesTrabajados: number
-  montoTotalBruto: number // Corregido el nombre a montoTotalBruto
-} {
-  const round = (num: number) => Math.round(num * 100) / 100
+/* ------------------------------------------------------
+ * Décimo Tercer Mes (Panamá)
+ * ------------------------------------------------------ */
+export function computeDecimoBrutoPanama(args: {
+  periodo: string;
+  payrollEntriesCuatrimestre?: PayrollEntry[]; // ingresos devengados (bruto) de los 4 meses del cuatrimestre
+  salarioBaseMensual?: number; // fallback si no hay histórico
+}): number {
+  const { periodo, payrollEntriesCuatrimestre, salarioBaseMensual = 0 } = args;
+  assertPeriodo(periodo);
 
-  const yearEntries = payrollEntries.filter((entry) => {
-    const entryYear = Number.parseInt(entry.periodo.split("-")[0])
-    return entry.empleadoId === employee.id && entryYear === year && entry.estado !== "borrador"
-  })
-
-  let mesesTrabajados = 0
-  let salarioPromedio = employee.salarioBase
-  let totalIngresos = 0 // Variable auxiliar para el cálculo
-
-  if (yearEntries.length > 0) {
-    mesesTrabajados = yearEntries.length
-    totalIngresos = yearEntries.reduce((sum, entry) => sum + entry.salarioBruto, 0)
-    salarioPromedio = totalIngresos / mesesTrabajados
-  } else {
-    const hireDate = new Date(employee.fechaIngreso)
-    const hireYear = hireDate.getFullYear()
-
-    if (hireYear === year) {
-      const hireMonth = hireDate.getMonth()
-      mesesTrabajados = 12 - hireMonth
-      totalIngresos = employee.salarioBase * mesesTrabajados
-    } else if (hireYear < year) {
-      mesesTrabajados = 12
-      totalIngresos = employee.salarioBase * 12
-    }
+  if (Array.isArray(payrollEntriesCuatrimestre) && payrollEntriesCuatrimestre.length > 0) {
+    const totalCents = payrollEntriesCuatrimestre.reduce(
+      (acc, e) => acc + toCents((e as any).salarioBruto ?? 0),
+      0
+    );
+    return fromCents(Math.round(totalCents / 12));
   }
+  return round((salarioBaseMensual * 4) / 12);
+}
 
-  // CORRECCIÓN CLAVE: La fórmula legal del DTM Bruto Total Anual es (Total Ingresos / 12)
-  const montoTotalBruto = round(totalIngresos / 12)
+export function computeDecimoDeductionsPanama(args: {
+  decimoBruto: number;
+  salarioBaseMensual: number;
+  legalParameters?: LegalParameters[];
+}): {
+  ssEmpleadoDecimo: number;
+  ssEmpleadorDecimo: number;
+  seEmpleadoDecimo: number;
+  seEmpleadorDecimo: number;
+  isrDecimo: number;
+} {
+  const rates = buildRates(args.legalParameters);
+  const { decimoBruto, salarioBaseMensual } = args;
+
+  const ssEmpleadoDecimo = round(decimoBruto * (rates.ssEmpleadoDecimo / 100));
+  const ssEmpleadorDecimo = round(decimoBruto * (rates.ssEmpleador / 100));
+
+  const seEmpleadoDecimo = rates.seAplicaEnDecimo ? round(decimoBruto * (rates.seEmpleado / 100)) : 0;
+  const seEmpleadorDecimo = rates.seAplicaEnDecimo ? round(decimoBruto * (rates.seEmpleador / 100)) : 0;
+
+  // ISR sobre décimo por diferencia anual (anual con décimo - anual sin décimo)
+  const anualSinDecimo = salarioBaseMensual * 12;
+  const anualConDecimo = anualSinDecimo + decimoBruto;
+  const isrDecimo = round(
+    computeISRAnualPanama(anualConDecimo) - computeISRAnualPanama(anualSinDecimo)
+  );
+
+  return { ssEmpleadoDecimo, ssEmpleadorDecimo, seEmpleadoDecimo, seEmpleadorDecimo, isrDecimo };
+}
+
+export function calculateDecimoTercerMesWithDeductions(args: {
+  employee: Employee;
+  periodo: string; // "YYYY-MM" (abril, agosto, diciembre)
+  payrollEntriesCuatrimestre?: PayrollEntry[]; // históricos del cuatrimestre del período
+  legalParameters?: LegalParameters[];
+}): {
+  periodo: string;
+  isDecimoMonth: boolean;
+  decimoBruto: number;
+  ssEmpleadoDecimo: number;
+  ssEmpleadorDecimo: number;
+  seEmpleadoDecimo: number;
+  seEmpleadorDecimo: number;
+  isrDecimo: number;
+  decimoNetoEmpleado: number;
+  costoPatronalDecimo: number;
+} {
+  const { employee, periodo, payrollEntriesCuatrimestre, legalParameters } = args;
+
+  if (!periodo) throw new Error('Falta "periodo" (YYYY-MM) al calcular el décimo.');
+  assertPeriodo(periodo);
+
+  const isDec = isDecimoMonth(periodo);
+  if (!isDec) {
+    return {
+      periodo,
+      isDecimoMonth: false,
+      decimoBruto: 0,
+      ssEmpleadoDecimo: 0,
+      ssEmpleadorDecimo: 0,
+      seEmpleadoDecimo: 0,
+      seEmpleadorDecimo: 0,
+      isrDecimo: 0,
+      decimoNetoEmpleado: 0,
+      costoPatronalDecimo: 0,
+    };
+    }
+
+  const decimoBruto = computeDecimoBrutoPanama({
+    periodo,
+    payrollEntriesCuatrimestre,
+    salarioBaseMensual: employee.salarioBase,
+  });
+
+  const {
+    ssEmpleadoDecimo,
+    ssEmpleadorDecimo,
+    seEmpleadoDecimo,
+    seEmpleadorDecimo,
+    isrDecimo,
+  } = computeDecimoDeductionsPanama({
+    decimoBruto,
+    salarioBaseMensual: employee.salarioBase,
+    legalParameters,
+  });
+
+  const decimoNetoEmpleado = round(decimoBruto - ssEmpleadoDecimo - seEmpleadoDecimo - isrDecimo);
+  const costoPatronalDecimo = round(decimoBruto + ssEmpleadorDecimo + seEmpleadorDecimo);
 
   return {
-    salarioPromedio: round(salarioPromedio),
-    mesesTrabajados,
-    montoTotalBruto,
-  }
+    periodo,
+    isDecimoMonth: true,
+    decimoBruto,
+    ssEmpleadoDecimo,
+    ssEmpleadorDecimo,
+    seEmpleadoDecimo,
+    seEmpleadorDecimo,
+    isrDecimo,
+    decimoNetoEmpleado,
+    costoPatronalDecimo,
+  };
 }
 
-// CORRECCIÓN: Se ajusta el cálculo del monto total, ISR y distribución de cuotas
-export function calculateDecimoTercerMesWithDeductions(
-  employee: Employee,
-  payrollEntries: PayrollEntry[],
-  year: number,
-  legalParameters: LegalParameters[],
-  isrBrackets: ISRBracket[],
-): {
-  salarioPromedio: number
-  mesesTrabajados: number
-  montoTotal: number
-  css: number
-  cssPatrono: number
-  isr: number
-  totalDeducciones: number
-  totalAportesPatronales: number
-  montoNeto: number
-  pagoAbril: number
-  pagoAgosto: number
-  pagoDiciembre: number
-  mesesDetalle: string[]
-} {
-  const round = (num: number) => Math.round(num * 100) / 100
+/* ------------------------------------------------------
+ * SIPE del período (Caja de Seguro Social)
+ * ------------------------------------------------------ */
+export interface SIPEPayment {
+  periodo: string;
+  fechaLimite: string;
+  isDecimoMonth: boolean;
 
-  const yearEntries = payrollEntries.filter((entry) => {
-    const entryYear = Number.parseInt(entry.periodo.split("-")[0])
-    return entry.empleadoId === employee.id && entryYear === year && entry.estado !== "borrador"
-  })
+  // Totales por aportes regulares del período
+  totalSeguroSocialEmpleado: number;
+  totalSeguroSocialEmpleador: number;
+  totalSeguroEducativoEmpleado: number;
+  totalSeguroEducativoEmpleador: number;
+  totalRiesgoProfesional: number;
 
-  let mesesTrabajados = 0
-  let salarioPromedio = employee.salarioBase
-  let totalIngresos = 0
-  let mesesDetalle: string[] = []
+  // Totales del décimo (si aplica en el período)
+  totalDecimoBruto: number;
+  totalDecimoSS_Empleado: number;
+  totalDecimoSS_Empleador: number;
+  totalDecimoSE_Empleado: number; // usualmente 0
+  totalDecimoSE_Empleador: number; // usualmente 0
+  totalDecimoISR: number;
 
-  if (yearEntries.length > 0) {
-    const uniqueMonths = new Set(yearEntries.map((entry) => entry.periodo.split("-").slice(0, 2).join("-")))
-    mesesTrabajados = uniqueMonths.size
-    totalIngresos = yearEntries.reduce((sum, entry) => sum + entry.salarioBruto, 0)
-    salarioPromedio = totalIngresos / mesesTrabajados
+  // ISR total retenido en el período (regular + décimo)
+  totalISR: number;
 
-    const monthNames = [
-      "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
-      "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
-    ]
-    mesesDetalle = Array.from(uniqueMonths).map((periodo) => {
-      const month = Number.parseInt(periodo.split("-")[1])
-      return monthNames[month - 1]
-    })
-  } else {
-    const hireDate = new Date(employee.fechaIngreso)
-    const hireYear = hireDate.getFullYear()
+  // Total a pagar a CSS vía SIPE (no incluye ISR)
+  totalAPagarCSS: number;
 
-    if (hireYear === year) {
-      const hireMonth = hireDate.getMonth()
-      mesesTrabajados = 12 - hireMonth
-      totalIngresos = employee.salarioBase * mesesTrabajados
-
-      const monthNames = [
-        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
-        "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
-      ]
-      for (let i = hireMonth; i < 12; i++) {
-        mesesDetalle.push(monthNames[i])
-      }
-    } else if (hireYear < year) {
-      mesesTrabajados = 12
-      totalIngresos = employee.salarioBase * 12
-      mesesDetalle = [
-        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
-        "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
-      ]
-    }
-  }
-
-  // CORRECCIÓN CLAVE: Monto Bruto Total del Décimo (Ingresos Anuales / 12)
-  const montoTotal = round(totalIngresos / 12)
-
-  // 2. Cálculo de deducciones sobre el Monto Bruto Total Anual
-  const css = round((montoTotal * 7.25) / 100)
-  const cssPatrono = round((montoTotal * 10.75) / 100)
-
-  // Base para calcular el ISR Anual (Salario Base * 12) + 0 (el DTM no cuenta para sí mismo)
-  const salarioAnual = employee.salarioBase * 12 
-
-  let isrAnual = 0
-  if (salarioAnual > 11000) {
-    if (salarioAnual <= 50000) {
-      isrAnual = ((salarioAnual - 11000) * 15) / 100
-    } else {
-      isrAnual = 5850 + ((salarioAnual - 50000) * 25) / 100
-    }
-  }
-
-  // CORRECCIÓN CLAVE: ISR total a retener sobre el DTM (Generalmente 1/12 del ISR anual)
-  const isr = round(isrAnual / 12) 
-
-  // 3. Totales
-  const totalDeducciones = round(css + isr)
-  const totalAportesPatronales = round(cssPatrono)
-  const montoNeto = round(montoTotal - totalDeducciones)
-
-  // 4. Distribución en Cuotas, ajustando el redondeo a la última cuota
-  const pagoBase = round(montoNeto / 3)
-  const pagoAbril = pagoBase
-  const pagoAgosto = pagoBase
-  const pagoDiciembre = round(montoNeto - pagoAbril - pagoAgosto) 
-
-  // Debugging log (Muestra los resultados con la lógica corregida)
-  console.log("[v0] ========================================")
-  console.log("[v0] Empleado:", employee.nombre, employee.apellido)
-  console.log("[v0] Meses trabajados:", mesesTrabajados)
-  console.log("[v0] Meses detalle:", mesesDetalle.join(", "))
-  console.log("[v0] Salario promedio: $", salarioPromedio.toFixed(2))
-  console.log("[v0] Total ingresos: $", totalIngresos.toFixed(2))
-  console.log("[v0] FÓRMULA CORREGIDA: Total Ingresos / 12")
-  console.log("[v0] Cálculo: ", `${totalIngresos.toFixed(2)} / 12 = ${montoTotal.toFixed(2)}`)
-  console.log("[v0] Monto bruto (Total Anual): $", montoTotal.toFixed(2))
-  console.log("[v0] CSS Empleado (7.25%): $", css.toFixed(2))
-  console.log("[v0] CSS Patrono (10.75%): $", cssPatrono.toFixed(2))
-  console.log("[v0] ISR (Total Décimo): $", isr.toFixed(2))
-  console.log("[v0] Total deducciones empleado: $", totalDeducciones.toFixed(2))
-  console.log("[v0] Total aportes patronales: $", totalAportesPatronales.toFixed(2))
-  console.log("[v0] Monto neto (Total Anual): $", montoNeto.toFixed(2))
-  console.log("[v0] Pago Abril: $", pagoAbril.toFixed(2))
-  console.log("[v0] Pago Agosto: $", pagoAgosto.toFixed(2))
-  console.log("[v0] Pago Diciembre: $", pagoDiciembre.toFixed(2))
-  console.log("[v0] ========================================")
-
-  return {
-    salarioPromedio: round(salarioPromedio),
-    mesesTrabajados,
-    montoTotal,
-    css,
-    cssPatrono,
-    isr,
-    totalDeducciones,
-    totalAportesPatronales,
-    montoNeto,
-    pagoAbril,
-    pagoAgosto,
-    pagoDiciembre,
-    mesesDetalle,
-  }
+  estado: "pendiente" | "pagado";
 }
 
-// La función calculateSIPEPaymentDate se mantiene igual
-export function calculateSIPEPaymentDate(periodo: string): string {
-  const [year, month] = periodo.split("-").map(Number)
-  const nextMonth = month === 12 ? 1 : month + 1
-  const nextYear = month === 12 ? year + 1 : year
+export function calculateSIPEPayment(args: {
+  employee: Employee;
+  payrollEntries: PayrollEntry[];
+  periodo: string;
+  tipoPeriodo?: "quincenal" | "mensual";
+  legalParameters?: LegalParameters[];
+}): SIPEPayment {
+  const { employee, payrollEntries, periodo, tipoPeriodo = "mensual", legalParameters } = args;
+  assertPeriodo(periodo);
+  const rates = buildRates(legalParameters);
+  const decimoFlag = isDecimoMonth(periodo);
 
-  return `${nextYear}-${String(nextMonth).padStart(2, "0")}-15`
-}
+  // Entradas confirmadas del período
+  const periodEntries = (payrollEntries || []).filter(
+    (e) => e.periodo === periodo && e.estado !== "borrador"
+  );
 
-// CORRECCIÓN: Se ajusta la lógica para sumar 1/3 de las deducciones totales calculadas
-export function calculateSIPEPayment(
-  payrollEntries: PayrollEntry[],
-  periodo: string,
-  allEmployees: Employee[],
-  legalParameters: LegalParameters[],
-  isrBrackets: ISRBracket[],
-) {
-  const round = (num: number) => Math.round(num * 100) / 100
+  // Si no hay entradas, aproximamos una con salario base
+  const entries = periodEntries.length
+    ? periodEntries
+    : [
+        {
+          empleadoId: employee.id,
+          periodo,
+          salarioBruto: tipoPeriodo === "quincenal" ? employee.salarioBase / 2 : employee.salarioBase,
+          estado: "confirmado",
+        } as PayrollEntry,
+      ];
 
-  console.log("[v0] ========================================")
-  console.log("[v0] SIPE Calculation for period:", periodo)
-  console.log("[v0] Total employees in company:", allEmployees.length)
-
-  const [year, month] = periodo.split("-").map(Number)
-  const isDecimoMonth = month === 4 || month === 8 || month === 12 // Abril, Agosto, Diciembre
-
-  const periodEntries = payrollEntries.filter((e) => e.periodo === periodo)
-  console.log("[v0] Payroll entries for this period:", periodEntries.length)
-
-  const employeesWithEntriesIds = new Set(periodEntries.map((e) => e.empleadoId))
-  console.log("[v0] Employees with payroll entries:", employeesWithEntriesIds.size)
-
-  // Calculate for employees with payroll entries
-  let totalSeguroSocialEmpleado = round(periodEntries.reduce((sum, e) => sum + e.seguroSocialEmpleado, 0))
-  let totalSeguroSocialEmpleador = round(periodEntries.reduce((sum, e) => sum + e.seguroSocialEmpleador, 0))
-  let totalSeguroEducativoEmpleado = round(periodEntries.reduce((sum, e) => sum + e.seguroEducativo, 0))
-  let totalSeguroEducativoEmpleador = round(periodEntries.reduce((sum, e) => sum + e.seguroEducativoEmpleador, 0))
-  let totalRiesgoProfesional = round(periodEntries.reduce((sum, e) => sum + e.riesgoProfesional, 0))
-  let totalISR = round(periodEntries.reduce((sum, e) => sum + e.isr, 0))
-
-  let totalDecimoEmpleado = 0
-  let totalDecimoPatrono = 0
-  let totalDecimoISR = 0
-
-  if (isDecimoMonth) {
-    console.log("[v0] This is a décimo month, calculating décimo deductions...")
-    for (const employee of allEmployees) {
-      const decimo = calculateDecimoTercerMesWithDeductions(
-        employee,
-        payrollEntries,
-        year,
-        legalParameters,
-        isrBrackets,
-      )
-
-      // CORRECCIÓN: Sumar 1/3 de las deducciones TOTALES del Décimo (CSS e ISR)
-      const cssPorCuota = round(decimo.css / 3) // 1/3 del CSS total del décimo
-      const cssPatronoPorCuota = round(decimo.cssPatrono / 3) // 1/3 del CSS Patrono total del décimo
-      const isrPorCuota = round(decimo.isr / 3) // 1/3 del ISR total del décimo
-
-      totalDecimoEmpleado += cssPorCuota
-      totalDecimoPatrono += cssPatronoPorCuota
-      totalDecimoISR += isrPorCuota
-    }
-
-    totalDecimoEmpleado = round(totalDecimoEmpleado)
-    totalDecimoPatrono = round(totalDecimoPatrono)
-    totalDecimoISR = round(totalDecimoISR)
-
-    console.log("[v0] Total décimo CSS employee (por cuota):", totalDecimoEmpleado)
-    console.log("[v0] Total décimo CSS employer (por cuota):", totalDecimoPatrono)
-    console.log("[v0] Total décimo ISR (por cuota):", totalDecimoISR)
-
-    // Add décimo deductions to totals
-    totalSeguroSocialEmpleado = round(totalSeguroSocialEmpleado + totalDecimoEmpleado)
-    totalSeguroSocialEmpleador = round(totalSeguroSocialEmpleador + totalDecimoPatrono)
-    totalISR = round(totalISR + totalDecimoISR)
+  // Totales regulares
+  let ssEmpC = 0, ssPatC = 0, seEmpC = 0, sePatC = 0, rpC = 0;
+  for (const entry of entries) {
+    const bruto = (entry as any).salarioBruto ?? 0;
+    ssEmpC += toCents(bruto * (rates.ssEmpleado / 100));
+    ssPatC += toCents(bruto * (rates.ssEmpleador / 100));
+    seEmpC += toCents(bruto * (rates.seEmpleado / 100));
+    sePatC += toCents(bruto * (rates.seEmpleador / 100));
+    rpC += toCents(bruto * (rates.riesgoProfesional / 100));
   }
 
-  const employeesWithoutEntries = allEmployees.filter((emp) => !employeesWithEntriesIds.has(emp.id))
-  console.log("[v0] Employees without payroll entries:", employeesWithoutEntries.length)
-  console.log("[v0] Total employees being calculated:", employeesWithEntriesIds.size + employeesWithoutEntries.length)
+  // ISR regular prorrateado
+  const isrAnual = computeISRAnualPanama(employee.salarioBase * 13);
+  const isrPeriodo = tipoPeriodo === "quincenal" ? isrAnual / 24 : isrAnual / 12;
+  let totalISR_C = 0;
+  for (let i = 0; i < entries.length; i++) totalISR_C += toCents(isrPeriodo);
 
-  const seguroSocialEmpleadoRate =
-    legalParameters.find((p) => p.tipo === "seguro_social_empleado" && p.activo)?.porcentaje || 9.75
-  const seguroSocialEmpleadorRate =
-    legalParameters.find((p) => p.tipo === "seguro_social_empleador" && p.activo)?.porcentaje || 13.25
-  const seguroEducativoRate = legalParameters.find((p) => p.tipo === "seguro_educativo" && p.activo)?.porcentaje || 1.25
-  const seguroEducativoEmpleadorRate =
-    legalParameters.find((p) => p.tipo === "seguro_educativo_empleador" && p.activo)?.porcentaje || 1.5
-  const riesgoProfesionalRate =
-    legalParameters.find((p) => p.tipo === "riesgo_profesional" && p.activo)?.porcentaje || 0.98
+  // Décimo del período (si aplica)
+  let totalDecimoBruto = 0;
+  let totalDecimoSS_Empleado = 0;
+  let totalDecimoSS_Empleador = 0;
+  let totalDecimoSE_Empleado = 0;
+  let totalDecimoSE_Empleador = 0;
+  let totalDecimoISR_C = 0;
 
-  for (const employee of employeesWithoutEntries) {
-    const salarioBase = employee.salarioBase
-    // Se asume el pago mensual para empleados sin entries (para propósitos del SIPE)
-    totalSeguroSocialEmpleado += round((salarioBase * seguroSocialEmpleadoRate) / 100)
-    totalSeguroSocialEmpleador += round((salarioBase * seguroSocialEmpleadorRate) / 100)
-    totalSeguroEducativoEmpleado += round((salarioBase * seguroEducativoRate) / 100)
-    totalSeguroEducativoEmpleador += round((salarioBase * seguroEducativoEmpleadorRate) / 100)
-    totalRiesgoProfesional += round((salarioBase * riesgoProfesionalRate) / 100)
+  if (decimoFlag) {
+    const decimoBruto = computeDecimoBrutoPanama({
+      periodo,
+      payrollEntriesCuatrimestre: undefined, // si tienes histórico, pásalo aquí
+      salarioBaseMensual: employee.salarioBase,
+    });
+    const d = computeDecimoDeductionsPanama({
+      decimoBruto,
+      salarioBaseMensual: employee.salarioBase,
+      legalParameters,
+    });
 
-    // Calculate ISR for employees without entries
-    const salarioAnual = salarioBase * 13 // Base de ISR incluye DTM
-    let isrAnual = 0
-    if (salarioAnual > 11000) {
-      if (salarioAnual <= 50000) {
-        isrAnual = ((salarioAnual - 11000) * 15) / 100
-      } else {
-        isrAnual = 5850 + ((salarioAnual - 50000) * 25) / 100
-      }
-    }
-    const isrMensual = round(isrAnual / 13)
-    totalISR += isrMensual
+    totalDecimoBruto += decimoBruto;
+    totalDecimoSS_Empleado += d.ssEmpleadoDecimo;
+    totalDecimoSS_Empleador += d.ssEmpleadorDecimo;
+    totalDecimoSE_Empleado += d.seEmpleadoDecimo;   // usualmente 0
+    totalDecimoSE_Empleador += d.seEmpleadorDecimo; // usualmente 0
+    totalDecimoISR_C += toCents(d.isrDecimo);
   }
 
-  const totalAPagar = round(
-    totalSeguroSocialEmpleado +
-      totalSeguroSocialEmpleador +
-      totalSeguroEducativoEmpleado +
-      totalSeguroEducativoEmpleador +
-      totalRiesgoProfesional +
-      totalISR,
-  )
+  const totalSeguroSocialEmpleado = fromCents(ssEmpC);
+  const totalSeguroSocialEmpleador = fromCents(ssPatC);
+  const totalSeguroEducativoEmpleado = fromCents(seEmpC);
+  const totalSeguroEducativoEmpleador = fromCents(sePatC);
+  const totalRiesgoProfesional = fromCents(rpC);
+  const totalISR = fromCents(totalISR_C + totalDecimoISR_C);
 
-  console.log("[v0] Final SIPE total:", totalAPagar)
-  console.log("[v0] ========================================")
+  // Total a pagar a CSS por SIPE (no incluye ISR): patronales + riesgo + SS patronal de décimo
+  const totalAPagarCSS = round(
+    totalSeguroSocialEmpleador +
+    totalSeguroEducativoEmpleador +
+    totalRiesgoProfesional +
+    totalDecimoSS_Empleador +
+    totalDecimoSE_Empleador // usualmente 0
+  );
 
   return {
     periodo,
     fechaLimite: calculateSIPEPaymentDate(periodo),
+    isDecimoMonth: decimoFlag,
     totalSeguroSocialEmpleado: round(totalSeguroSocialEmpleado),
     totalSeguroSocialEmpleador: round(totalSeguroSocialEmpleador),
     totalSeguroEducativoEmpleado: round(totalSeguroEducativoEmpleado),
     totalSeguroEducativoEmpleador: round(totalSeguroEducativoEmpleador),
     totalRiesgoProfesional: round(totalRiesgoProfesional),
+    totalDecimoBruto: round(totalDecimoBruto),
+    totalDecimoSS_Empleado: round(totalDecimoSS_Empleado),
+    totalDecimoSS_Empleador: round(totalDecimoSS_Empleador),
+    totalDecimoSE_Empleado: round(totalDecimoSE_Empleado),
+    totalDecimoSE_Empleador: round(totalDecimoSE_Empleador),
+    totalDecimoISR: round(fromCents(totalDecimoISR_C)),
     totalISR: round(totalISR),
+    totalAPagarCSS,
+    estado: "pendiente",
+  };
+}
+
+/* ------------------------------------------------------
+ * BACKCOMPAT: Aliases y totales de empresa
+ * ------------------------------------------------------ */
+
+// Aliases "legacy" para no romper UI existentes: añade totalAPagar y renombres de campos del décimo.
+export function calculateSIPEPaymentWithLegacyAliases(args: Parameters<typeof calculateSIPEPayment>[0]) {
+  const r = calculateSIPEPayment(args);
+
+  // Aliases "legacy":
+  const totalDecimoEmpleado = r.totalDecimoSS_Empleado;    // antes: totalDecimoEmpleado
+  const totalDecimoPatrono  = r.totalDecimoSS_Empleador;   // antes: totalDecimoPatrono
+  const totalDecimoISR      = r.totalDecimoISR;            // mismo significado
+
+  // totalAPagar "legacy" (NO es el pago real a CSS; se conserva solo para UI que lo espera):
+  const totalAPagar = round(
+    r.totalAPagarCSS +
+    r.totalSeguroSocialEmpleado +
+    r.totalSeguroEducativoEmpleado +
+    r.totalISR
+  );
+
+  return {
+    ...r,
+    totalDecimoEmpleado,
+    totalDecimoPatrono,
+    totalDecimoISR,
+    totalAPagar,            // alias legacy
+  };
+}
+
+// Totales de empresa (itera por empleados y suma), emulando el alcance del archivo original.
+export function calculateSIPEPaymentCompany(args: {
+  employees: Employee[];
+  payrollEntries: PayrollEntry[];
+  periodo: string;
+  tipoPeriodo?: "quincenal" | "mensual";
+  legalParameters?: LegalParameters[];
+}) {
+  const { employees, payrollEntries, periodo, tipoPeriodo = "mensual", legalParameters } = args;
+  assertPeriodo(periodo);
+
+  // Acumuladores
+  let acc = {
+    totalSeguroSocialEmpleado: 0,
+    totalSeguroSocialEmpleador: 0,
+    totalSeguroEducativoEmpleado: 0,
+    totalSeguroEducativoEmpleador: 0,
+    totalRiesgoProfesional: 0,
+    totalDecimoBruto: 0,
+    totalDecimoSS_Empleado: 0,
+    totalDecimoSS_Empleador: 0,
+    totalDecimoSE_Empleado: 0,
+    totalDecimoSE_Empleador: 0,
+    totalDecimoISR: 0,
+    totalISR: 0,
+  };
+
+  for (const emp of employees) {
+    const empEntries = payrollEntries.filter(e => e.empleadoId === emp.id);
+    const r = calculateSIPEPayment({
+      employee: emp,
+      payrollEntries: empEntries,
+      periodo,
+      tipoPeriodo,
+      legalParameters,
+    });
+
+    acc.totalSeguroSocialEmpleado     += r.totalSeguroSocialEmpleado;
+    acc.totalSeguroSocialEmpleador    += r.totalSeguroSocialEmpleador;
+    acc.totalSeguroEducativoEmpleado  += r.totalSeguroEducativoEmpleado;
+    acc.totalSeguroEducativoEmpleador += r.totalSeguroEducativoEmpleador;
+    acc.totalRiesgoProfesional        += r.totalRiesgoProfesional;
+    acc.totalDecimoBruto              += r.totalDecimoBruto;
+    acc.totalDecimoSS_Empleado        += r.totalDecimoSS_Empleado;
+    acc.totalDecimoSS_Empleador       += r.totalDecimoSS_Empleador;
+    acc.totalDecimoSE_Empleado        += r.totalDecimoSE_Empleado;
+    acc.totalDecimoSE_Empleador       += r.totalDecimoSE_Empleador;
+    acc.totalDecimoISR                += r.totalDecimoISR;
+    acc.totalISR                      += r.totalISR;
+  }
+
+  // Pago real a CSS:
+  const totalAPagarCSS = round(
+    acc.totalSeguroSocialEmpleador +
+    acc.totalSeguroEducativoEmpleador +
+    acc.totalRiesgoProfesional +
+    acc.totalDecimoSS_Empleador +
+    acc.totalDecimoSE_Empleador
+  );
+
+  // Aliases legacy para seguir mostrando "como antes"
+  const totalDecimoEmpleado = acc.totalDecimoSS_Empleado;
+  const totalDecimoPatrono  = acc.totalDecimoSS_Empleador;
+  const totalDecimoISR      = acc.totalDecimoISR;
+
+  const totalAPagar = round(
+    totalAPagarCSS +
+    acc.totalSeguroSocialEmpleado +
+    acc.totalSeguroEducativoEmpleado +
+    acc.totalISR
+  );
+
+  return {
+    periodo,
+    fechaLimite: calculateSIPEPaymentDate(periodo),
+    isDecimoMonth: isDecimoMonth(periodo),
+
+    totalSeguroSocialEmpleado: round(acc.totalSeguroSocialEmpleado),
+    totalSeguroSocialEmpleador: round(acc.totalSeguroSocialEmpleador),
+    totalSeguroEducativoEmpleado: round(acc.totalSeguroEducativoEmpleado),
+    totalSeguroEducativoEmpleador: round(acc.totalSeguroEducativoEmpleador),
+    totalRiesgoProfesional: round(acc.totalRiesgoProfesional),
+
+    totalDecimoBruto: round(acc.totalDecimoBruto),
+    totalDecimoSS_Empleado: round(acc.totalDecimoSS_Empleado),
+    totalDecimoSS_Empleador: round(acc.totalDecimoSS_Empleador),
+    totalDecimoSE_Empleado: round(acc.totalDecimoSE_Empleado),
+    totalDecimoSE_Empleador: round(acc.totalDecimoSE_Empleador),
+    totalDecimoISR: round(acc.totalDecimoISR),
+
+    totalISR: round(acc.totalISR),
+
+    // Campos “legacy” además del campo correcto a CSS:
     totalDecimoEmpleado: round(totalDecimoEmpleado),
     totalDecimoPatrono: round(totalDecimoPatrono),
-    totalDecimoISR: round(totalDecimoISR),
-    isDecimoMonth,
-    totalAPagar,
+    totalAPagar,     // legacy (no es pago real CSS)
+    totalAPagarCSS,  // pago real a CSS
+
     estado: "pendiente" as const,
-  }
+  };
 }

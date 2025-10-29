@@ -1,46 +1,11 @@
-// File: app/api/companies/route.ts (Corregido)
+import { NextResponse } from 'next/server';
+import { db } from '@/lib/db/db';
+import { auth } from '@clerk/nextjs/server';
 
-import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
-import { db } from "@/lib/db/db";
-import { Prisma } from "@prisma/client"; // <--- 1. IMPORTA EL TIPO DE ERROR
-
-// GET /api/companies - (Esta función está bien, no necesita cambios)
-export async function GET() {
-  try {
-    const { userId: clerkId } = await auth();
-
-    if (!clerkId) {
-      return new NextResponse("Unauthorized", { status: 401 });
-    }
-
-    const user = await db.user.findUnique({
-      where: { clerkId },
-      include: {
-        companias: {
-          orderBy: { nombre: 'asc' }
-        },
-      },
-    });
-
-    if (!user) {
-      return new NextResponse("User not found in DB", { status: 404 });
-    }
-
-    return NextResponse.json(user.companias);
-
-  } catch (error) {
-    console.error("[COMPANIES_GET]", error);
-    return NextResponse.json({ error: "Failed to fetch companies" }, { status: 500 });
-  }
-}
-
-// POST /api/companies - (Esta función tiene el catch actualizado)
+// POST (Crear Compañía) - Lógica de permisos ya implementada
 export async function POST(request: Request) {
   try {
     const { userId: clerkId } = await auth();
-    const data = await request.json();
-
     if (!clerkId) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
@@ -50,39 +15,76 @@ export async function POST(request: Request) {
     });
 
     if (!user) {
-      return new NextResponse("User not found in DB", { status: 404 });
+      return new NextResponse("Forbidden: Usuario no encontrado", { status: 403 });
     }
 
-    // 3. Crear la compañía
+    const isAdmin = user.rol === 'super_admin' || user.rol === 'admin';
+    if (!isAdmin) {
+      return new NextResponse("Forbidden: No tiene permisos para crear compañías", { status: 403 });
+    }
+
+    const data = await request.json();
+    const { nombre, ruc, direccion, telefono, email, representanteLegal } = data;
+
+    if (!nombre || !ruc) {
+      return NextResponse.json({ error: 'Nombre y RUC son requeridos' }, { status: 400 });
+    }
+
     const newCompany = await db.company.create({
       data: {
-        ...data,
-        activo: data.activo ?? true,
+        nombre,
+        ruc,
+        direccion,
+        telefono,
+        email,
+        representanteLegal,
+        activo: true,
         users: {
-          connect: {
-            id: user.id,
-          },
-        },
+          connect: { id: user.id }
+        }
       },
     });
 
     return NextResponse.json(newCompany, { status: 201 });
+  } catch (error: any) {
+    console.error('Error creating company:', error);
+    if (error.code === 'P2002' && error.meta?.target?.includes('ruc')) {
+      return NextResponse.json({ error: 'El RUC ya está registrado' }, { status: 409 });
+    }
+    return NextResponse.json({ error: 'Failed to create company' }, { status: 500 });
+  }
+}
 
-  } catch (error) {
-    console.error("[COMPANIES_POST]", error);
-
-    // --- 2. MANEJO DE ERROR ACTUALIZADO ---
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      // El error 'P2002' es "Unique constraint failed"
-      if (error.code === 'P2002') {
-        return NextResponse.json(
-          { error: "Ya existe una compañía con este RUC." },
-          { status: 409 } // 409 Conflict es más semántico que 400
-        );
-      }
+// GET /api/companies (Obtener lista de compañías)
+export async function GET(request: Request) {
+  try {
+    const { userId: clerkId } = await auth();
+    if (!clerkId) {
+      return new NextResponse("Unauthorized", { status: 401 });
     }
 
-    // Si es cualquier otro error, devuelve 500
-    return NextResponse.json({ error: "Failed to create company" }, { status: 500 });
+    const user = await db.user.findUnique({
+      where: { clerkId },
+      include: { companias: true } // Incluir las compañías asignadas
+    });
+
+    if (!user) {
+      return new NextResponse("Forbidden: Usuario no encontrado", { status: 403 });
+    }
+
+    // --- LÓGICA DE PERMISOS (GET) CORREGIDA ---
+    if (user.rol === 'super_admin') {
+      // Super Admin: Devolver TODAS las compañías
+      const allCompanies = await db.company.findMany();
+      return NextResponse.json(allCompanies);
+    } else {
+      // Admin, Contador, User: Devolver solo las compañías ASIGNADAS
+      return NextResponse.json(user.companias);
+    }
+    // --- FIN DE LA LÓGICA DE PERMISOS (GET) ---
+
+  } catch (error) {
+    console.error('Error fetching companies:', error);
+    return NextResponse.json({ error: 'Failed to fetch companies' }, { status: 500 });
   }
 }

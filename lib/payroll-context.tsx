@@ -90,7 +90,7 @@ interface PayrollContextType {
   deleteSIPEPayment: (id: string) => Promise<void>
 
   calculatePayrollApi: (input: Omit<PayrollCalculationInput, 'legalParameters' | 'isrBrackets'> & { currentLegalParameters: LegalParameters[], currentISRBrackets: ISRBracket[] }) => Promise<PayrollCalculationResult>
-  calculateDecimoApi: (employeeId: string, anio: number) => Promise<DecimoTercerMes>
+  calculateDecimoApi: (employeeId: string, anio: string, companiaId: string) => Promise<DecimoTercerMes>
   calculateSIPEApi: (periodo: string) => Promise<SIPEPayment>
 }
 
@@ -184,8 +184,7 @@ export const PayrollProvider: React.FC<PayrollProviderProps> = ({
   const [currentPeriod, setCurrentPeriod] = useState(
     new Date().toISOString().slice(0, 7),
   );
-  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
-
+const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
   const currentCompany = useMemo(
     () => companies.find((c) => c?.id === currentCompanyId) || null,
     [companies, currentCompanyId],
@@ -331,25 +330,31 @@ export const PayrollProvider: React.FC<PayrollProviderProps> = ({
     return updatedCompany
   }, []) // Dependencia ya no incluye fetchAllCompanies
   
+// File: lib/payroll-context.tsx
+
+// ... other code ...
+
   const deleteCompany = useCallback(async (id: string) => {
-    try {
+    try { // <-- Start of try block
       await apiFetcher<void>(`/api/companies/${id}`, { method: "DELETE" })
       // Actualizamos el estado local
       setCompanies(prev => prev.filter(c => c.id !== id));
       toast({ title: "Compañía Eliminada", description: "La compañía ha sido eliminada.", variant: "default" })
-      
-      if (currentCompanyId === id) {
-          // Si eliminamos la compañía activa, redirigimos (por ejemplo, a la página principal de selección)
-          window.location.href = '/'; // O a la primera compañía que quede
-      }
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message || "No se pudo eliminar la compañía.", variant: "destructive" })
-      throw e
-    }
-  }, [currentCompanyId]) // Ya no depende de fetchAllCompanies
 
-  // ... (El resto de funciones CRUD para Employees, LegalParameters, etc., no cambian)
-  // ... (Ellas dependen de fetchCompanyData, lo cual es correcto)
+      if (currentCompanyId === id) {
+         // Si eliminamos la compañía activa, redirigimos
+         window.location.href = '/'; // O a la primera compañía que quede
+       }
+    } catch (e: any) { // <-- Catch block for ANY error
+      toast({ // <-- THIS SHOULD DISPLAY THE ALERT
+        title: "Error",
+        description: e.message || "No se pudo eliminar la compañía.", // Shows the specific error (like 403 Forbidden) if available
+        variant: "destructive"
+      })
+      throw e // Re-throw the error so the calling component knows it failed
+    }
+  }, [currentCompanyId]) // Dependency array
+
   
   const selectPeriod = (period: string) => setCurrentPeriod(period)
   const selectYear = (year: number) => setCurrentYear(year)
@@ -597,21 +602,85 @@ export const PayrollProvider: React.FC<PayrollProviderProps> = ({
       throw e
     }
   }, [getCompanyId])
+// ... (dentro de tu PayrollProvider)
 
-  const calculateDecimoApi = useCallback(async (empleadoId: string, anio: number) => {
-      const companiaId = getCompanyId()
-      if (!companiaId) throw new Error("No company selected.")
-      try {
-        const result = await apiFetcher<DecimoTercerMes>("/api/calculations/decimo", { 
-            method: "POST", 
-            data: { empleadoId, companiaId, anio } 
-        })
-        return result
-      } catch (e: any) {
-        toast({ title: "Error de Cálculo", description: e.message || "No se pudo calcular el Décimo.", variant: "destructive" })
-        throw e
-      }
-  }, [getCompanyId]);
+    // --- REEMPLAZA TU 'calculateDecimoApi' POR ESTA ---
+    const calculateDecimoApi = async (
+        empleadoId: string, 
+        companiaId: string, 
+        anio: number
+    ) => {
+
+        // 1. Definir los 3 períodos de pago
+        // (Si 'anio' es undefined, esto fallará, 
+        //  asegúrate de inicializar 'currentYear' en tu estado)
+        const periodos = [`${anio}-04`, `${anio}-08`, `${anio}-12`];
+        const results = [];
+
+        // 2. Llamar a la API 3 veces
+        for (const periodo of periodos) {
+            // ESTE 'fetch' es el que está fallando
+            const response = await fetch('/api/calculations/decimo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // Aquí es donde se envían los 3 campos a la API
+                body: JSON.stringify({
+                    empleadoId: empleadoId,
+                    companiaId: companiaId,
+                    periodo: periodo // ej. "2025-04"
+                })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                // ESTE ES EL ERROR QUE ESTÁS VIENDO
+                throw new Error(err.error || `Error en API para ${periodo}`);
+            }
+            
+            const data = await response.json();
+            results.push(data);
+        }
+
+        // 3. Consolidar los 3 resultados
+        const [resAbr, resAgo, resDic] = results;
+
+        // (Esto es una aproximación, puedes mejorarla)
+        const mesesTrabajados = 12; 
+        const salarioPromedio = (resAbr.decimoBruto + resAgo.decimoBruto + resDic.decimoBruto) / 3 * 4; // Promedio anual
+        const montoTotal = resAbr.decimoBruto + resAgo.decimoBruto + resDic.decimoBruto;
+        const css = resAbr.ssEmpleadoDecimo + resAgo.ssEmpleadoDecimo + resDic.ssEmpleadoDecimo;
+        const isr = resAbr.isrDecimo + resAgo.isrDecimo + resDic.isrDecimo;
+        const montoNeto = resAbr.decimoNetoEmpleado + resAgo.decimoNetoEmpleado + resDic.decimoNetoEmpleado;
+        const cssPatrono = resAbr.ssEmpleadorDecimo + resAgo.ssEmpleadorDecimo + resDic.ssEmpleadorDecimo;
+
+        // 4. Devolver el objeto anualizado que 'page.tsx' espera
+        return {
+            salarioPromedio,
+            mesesTrabajados,
+            montoTotal,
+            css,
+            cssPatrono,
+            isr,
+            totalDeducciones: css + isr,
+            totalAportesPatronales: cssPatrono,
+            montoNeto,
+            pagoAbril: resAbr.decimoNetoEmpleado,
+            pagoAgosto: resAgo.decimoNetoEmpleado,
+            pagoDiciembre: resDic.decimoNetoEmpleado,
+            // (Campos dummy que se sobreescriben en page.tsx)
+            id: '', 
+            empleadoId: empleadoId,
+            companiaId: companiaId,
+            anio: anio,
+            estado: 'calculado',
+            fechaCalculo: new Date().toISOString()
+        };
+    };
+
+// ... (Asegúrate de pasar 'calculateDecimoApi' en el 'value' del Provider)
+// ...
+// Y asegúrate de que 'currentYear' tenga un valor inicial:
+// const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
     
   const calculateSIPEApi = useCallback(async (periodo: string) => {
     const companiaId = getCompanyId()

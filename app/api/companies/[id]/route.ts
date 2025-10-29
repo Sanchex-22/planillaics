@@ -2,156 +2,126 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/db';
 import { auth } from '@clerk/nextjs/server';
 
-// Definir la jerarquía de roles
-const roleHierarchy = {
-  super_admin: 3,
-  admin: 2,
-  contador: 1,
-  user: 0,
-} as const; // 'as const' para tipos estrictos
-
-type Role = keyof typeof roleHierarchy;
-
-// --- MÉTODO PATCH ACTUALIZADO ---
-export async function PATCH(
-  request: Request, 
+// GET (Obtener una compañía específica - sin cambios)
+export async function GET(
+  request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    // 1. Obtener el ID de Clerk del usuario que HACE LA SOLICITUD
-    const { userId: requestingClerkId } = await auth();
-    if (!requestingClerkId) {
+    const { userId: clerkId } = await auth();
+    if (!clerkId) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
 
-    // 2. Obtener el perfil de DB del usuario que HACE LA SOLICITUD
-    const requestingUser = await db.user.findUnique({
-      where: { clerkId: requestingClerkId },
+    const companyId = params.id;
+    const company = await db.company.findUnique({
+      where: { id: companyId },
+      // Opcional: include: { users: true } si necesitas ver los usuarios asignados
     });
 
-    if (!requestingUser) {
-      return new NextResponse("Forbidden: Usuario no encontrado en DB", { status: 403 });
+    if (!company) {
+      return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
-    const requestingUserLevel = roleHierarchy[requestingUser.rol as Role] || 0;
+    // Aquí puedes añadir lógica de permisos si solo ciertos usuarios pueden ver detalles
+    // Por ejemplo, verificar si el usuario está asignado a esta compañía o es super_admin
 
-    // --- Lógica de la API ---
-    const data = await request.json();
-    const userIdToUpdate = params.id;
-    const { rol, activo, clerkId, companiaIdToLink } = data;
-
-    // 3. VALIDACIÓN DE SEGURIDAD (Si se está cambiando el rol)
-    if (rol) {
-      const newRole = rol as Role;
-      const newRoleLevel = roleHierarchy[newRole] || 0;
-
-      // REGLA 1: Solo un super_admin puede asignar 'super_admin'
-      if (newRole === 'super_admin' && requestingUser.rol !== 'super_admin') {
-        return new NextResponse("Forbidden: Solo un super_admin puede asignar este rol.", { status: 403 });
-      }
-
-      // REGLA 2: No se puede asignar un rol MÁS ALTO que el propio
-      if (newRoleLevel > requestingUserLevel) {
-        return new NextResponse("Forbidden: No puede asignar un rol superior al suyo.", { status: 403 });
-      }
-
-      // REGLA 3 (para Edición): Un admin no puede editar a otro admin o super_admin
-      if (!companiaIdToLink) { // Solo aplica en modo EDICIÓN
-        const targetUser = await db.user.findUnique({ where: { id: userIdToUpdate } });
-        if (targetUser) {
-          const targetUserCurrentLevel = roleHierarchy[targetUser.rol as Role] || 0;
-          
-          // Si el usuario objetivo tiene un nivel >= y el solicitante NO es super_admin
-          if (targetUserCurrentLevel >= requestingUserLevel && requestingUser.rol !== 'super_admin') {
-             return new NextResponse("Forbidden: No puede editar usuarios de nivel igual o superior.", { status: 403 });
-          }
-        }
-      }
-    }
-    // --- FIN DE LA VALIDACIÓN DE SEGURIDAD ---
-
-
-    let updatedUser;
-
-    if (companiaIdToLink) {
-      // Lógica para VINCULAR usuario a compañía
-      updatedUser = await db.user.update({
-        where: { id: userIdToUpdate },
-        data: {
-          rol: rol, 
-          companias: {
-            connect: { id: companiaIdToLink }
-          }
-        },
-      });
-    } else {
-      // Lógica para ACTUALIZAR un usuario existente
-      const updateData: { 
-        rol?: string, 
-        activo?: boolean, 
-        clerkId?: string | null 
-      } = {};
-
-      if (rol) updateData.rol = rol;
-      if (activo !== undefined) updateData.activo = activo;
-      if (clerkId !== undefined) {
-        updateData.clerkId = clerkId === "" ? null : clerkId;
-      }
-
-      updatedUser = await db.user.update({
-        where: { id: userIdToUpdate },
-        data: updateData,
-      });
-    }
-
-    const { hashedPassword, ...safeUser } = updatedUser;
-    return NextResponse.json(safeUser);
-
+    return NextResponse.json(company);
   } catch (error) {
-    console.error('Error updating user:', error);
-    // @ts-ignore
-    if (error.code === 'P2002' && error.meta?.target?.includes('clerkId')) {
-      return NextResponse.json({ error: 'Ese Clerk ID ya está en uso por otro usuario.' }, { status: 409 });
-    }
-    return NextResponse.json({ error: 'Failed to update user' }, { status: 500 });
+    console.error('Error fetching company:', error);
+    return NextResponse.json({ error: 'Failed to fetch company' }, { status: 500 });
   }
 }
 
-// ... (El método DELETE no cambia) ...
-export async function DELETE(
-  request: Request, 
+
+// PATCH (Actualizar una compañía - sin cambios)
+export async function PATCH(
+  request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const { userId: requestingUserId } = await auth();
-    if (!requestingUserId) {
+    const { userId: clerkId } = await auth();
+    if (!clerkId) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
-    
-    const data = await request.json();
-    const userIdToUnlink = params.id;
-    const { companiaIdToUnlink } = data;
 
-    if (!companiaIdToUnlink) {
-        return NextResponse.json({ error: 'Missing companiaIdToUnlink' }, { status: 400 });
+    // Verificar permisos (ej: solo admin/super_admin puede editar)
+    const user = await db.user.findUnique({ where: { clerkId } });
+    if (!user || (user.rol !== 'admin' && user.rol !== 'super_admin')) {
+        return NextResponse.json({ error: 'Forbidden: Insufficient permissions' }, { status: 403 });
     }
 
-    // TODO: Añadir lógica de permisos aquí también (¿Quién puede desvincular?)
-    // Por ahora, se asume que si puede ver la página, puede desvincular.
+    const companyIdToUpdate = params.id;
+    const data = await request.json();
+    const { nombre, ruc, direccion, telefono, email, representanteLegal, activo } = data;
 
-    await db.user.update({
-        where: { id: userIdToUnlink },
-        data: {
-            companias: {
-                disconnect: { id: companiaIdToUnlink }
-            }
-        }
+    const updatedCompany = await db.company.update({
+      where: { id: companyIdToUpdate },
+      data: {
+        nombre,
+        ruc,
+        direccion,
+        telefono,
+        email,
+        representanteLegal,
+        activo,
+      },
     });
 
-    return NextResponse.json({ message: 'User unlinked successfully' });
+    return NextResponse.json(updatedCompany);
+  } catch (error: any) {
+    console.error('Error updating company:', error);
+     if (error.code === 'P2002' && error.meta?.target?.includes('ruc')) {
+      return NextResponse.json({ error: 'El RUC ya está registrado' }, { status: 409 });
+    }
+    return NextResponse.json({ error: 'Failed to update company' }, { status: 500 });
+  }
+}
 
-  } catch (error) {
-    console.error('Error unlinking user:', error);
-    return NextResponse.json({ error: 'Failed to unlink user' }, { status: 500 });
+
+// DELETE (Eliminar una compañía - CORREGIDO)
+export async function DELETE(
+  request: Request, // El objeto request sigue presente pero no se usará para el body
+  { params }: { params: { id: string } }
+) {
+  try {
+    const { userId: clerkId } = await auth();
+    if (!clerkId) {
+      return new NextResponse("Unauthorized", { status: 401 });
+    }
+
+    // Verificar permisos (ej: solo super_admin puede eliminar)
+    const requestingUser = await db.user.findUnique({ where: { clerkId } });
+    if (!requestingUser || requestingUser.rol !== 'super_admin') {
+       return NextResponse.json({ error: 'Forbidden: Only super admins can delete companies.' }, { status: 403 });
+    }
+
+    const companyIdToDelete = params.id;
+
+    // --- LÍNEA REMOVIDA ---
+    // const data = await request.json(); // <-- NO LEER BODY AQUÍ
+
+    // Verificar si la compañía existe antes de intentar borrar
+    const company = await db.company.findUnique({
+      where: { id: companyIdToDelete },
+    });
+    if (!company) {
+      return NextResponse.json({ error: 'Company not found' }, { status: 404 });
+    }
+
+    // Opcional: Añadir lógica para prevenir borrar la única compañía o una compañía activa, etc.
+
+    // Realizar la eliminación usando el ID de los parámetros
+    await db.company.delete({
+      where: { id: companyIdToDelete },
+    });
+
+    // Devolver éxito (200 con mensaje o 204 sin contenido)
+    return NextResponse.json({ message: 'Company deleted successfully' }, { status: 200 });
+
+  } catch (error: any) {
+    console.error('Error deleting company:', error);
+    // Manejar errores específicos si es necesario (ej: foreign key constraints)
+    return NextResponse.json({ error: 'Failed to delete company' }, { status: 500 });
   }
 }
