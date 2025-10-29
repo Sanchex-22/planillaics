@@ -10,23 +10,22 @@ import { NoAccessPage } from "@/components/no-access-page";
 import { getLayoutData } from "@/lib/data";
 import Loader from "@/components/loaders/loader";
 
-export default async function Layout({
-  children,
-  params,
-}: Readonly<{
-  children: React.ReactNode;
-  params: { name: string };
-}>) {
+// --- CAMBIO 1: Acepta 'props' en lugar de desestructurar { children, params }
+export default async function Layout(
+  props: Readonly<{
+    children: React.ReactNode;
+    params: { name: string };
+  }>
+) {
+  const { children, params } = props;
 
-  // 2. LLAMAR A LA FUNCIÓN DE LÓGICA
   const { 
     initialUser, 
     initialCompanies, 
     currentCompanyId, 
     error 
-  } = await getLayoutData(params.name);
+  } = await getLayoutData(params?.name);
 
-  // 3. MANEJAR EL CASO DE NO ACCESO
   if (error === 'no-access' || !initialUser || !initialCompanies) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
@@ -36,7 +35,6 @@ export default async function Layout({
     );
   }
 
-  // 4. RENDERIZAR (todo igual que antes)
   return (
     <>
       <Suspense fallback={<div className="h-screen"><Loader/></div>}>

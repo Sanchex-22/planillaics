@@ -83,7 +83,6 @@ export default function UsuariosPage() {
                       <TableHead>Email</TableHead>
                       <TableHead>Rol (Global)</TableHead>
                       <TableHead>Estado</TableHead>
-                      {/* --- 1. ENCABEZADO CORREGIDO --- */}
                       <TableHead>Compañías Asignadas</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
@@ -91,15 +90,11 @@ export default function UsuariosPage() {
                   <TableBody>
                     {users.map((user) => {
                       const isCurrentUser = user.id === currentUser?.id; 
-                      
-                      // --- 2. LÓGICA CORREGIDA ---
-                      // Obtenemos TODAS las compañías, sin filtrar
                       const allAssignedCompanies = user.companias || [];
-                      // ---------------------------
                       
                       return (
-                        <TableRow key={user.id}>
-                          <TableCell className="font-medium">
+                        <TableRow key={user.id} className={`font-medium ${isCurrentUser ? "bg-blue-100" : ""}`}>
+                          <TableCell className={`font-medium`}>
                             {user.nombre}
                             {isCurrentUser && (
                               <span className="ml-2 text-xs font-normal text-muted-foreground">(Yo)</span>
