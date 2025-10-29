@@ -2,41 +2,94 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/db';
 import { auth } from '@clerk/nextjs/server';
 
-// PATCH /api/users/[id]
+// Definir la jerarquía de roles
+const roleHierarchy = {
+  super_admin: 3,
+  admin: 2,
+  contador: 1,
+  user: 0,
+} as const; 
+
+type Role = keyof typeof roleHierarchy;
+
+// --- MÉTODO PATCH (Editar o Vincular) ---
 export async function PATCH(
   request: Request, 
   { params }: { params: { id: string } }
 ) {
   try {
-    const { userId: requestingUserId } = await auth();
-    if (!requestingUserId) {
+    // 1. Obtener el usuario que HACE LA SOLICITUD
+    const { userId: requestingClerkId } = await auth();
+    if (!requestingClerkId) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
-    
-    const data = await request.json();
-    const userIdToUpdate = params.id;
+    const requestingUser = await db.user.findUnique({
+      where: { clerkId: requestingClerkId },
+    });
+    if (!requestingUser) {
+      return new NextResponse("Forbidden: Usuario no encontrado en DB", { status: 403 });
+    }
 
-    // --- LÓGICA ACTUALIZADA ---
-    // Destructuramos todos los campos posibles del body
-    const { rol, activo, clerkId, companiaIdToLink } = data;
+    // 2. VALIDACIÓN DE AUTO-EDICIÓN
+    const userIdToUpdate = params.id;
+    if (requestingUser.id === userIdToUpdate) {
+      return NextResponse.json({ error: "No puede editarse a sí mismo." }, { status: 403 });
+    }
+
+    const requestingUserLevel = roleHierarchy[requestingUser.rol as Role] || 0;
+    const data = await request.json();
+    const { rol, activo, clerkId, companiaIdToLink }= data;
+
+    // 3. VALIDACIÓN DE ROLES (Si se está cambiando el rol)
+    if (rol) {
+      const newRole = rol as Role;
+      const newRoleLevel = roleHierarchy[newRole] || 0;
+
+      if (newRole === 'super_admin' && requestingUser.rol !== 'super_admin') {
+        return NextResponse.json({ error: "Solo un super_admin puede asignar este rol." }, { status: 403 });
+      }
+      if (newRoleLevel > requestingUserLevel) {
+        return NextResponse.json({ error: "No puede asignar un rol superior al suyo." }, { status: 403 });
+      }
+      if (!companiaIdToLink) { 
+        const targetUser = await db.user.findUnique({ where: { id: userIdToUpdate } });
+        if (targetUser) {
+          const targetUserCurrentLevel = roleHierarchy[targetUser.rol as Role] || 0;
+          if (targetUserCurrentLevel >= requestingUserLevel && requestingUser.rol !== 'super_admin') {
+             return NextResponse.json({ error: "No puede editar usuarios de nivel igual o superior." }, { status: 403 });
+          }
+        }
+      }
+    }
 
     let updatedUser;
+    
+    // --- INICIO DE LA CORRECCIÓN ---
+    const includeCompaniaData = {
+      companias: {
+        select: {
+          id: true,
+          nombre: true,
+        }
+      }
+    };
+    // --- FIN DE LA CORRECCIÓN ---
+
 
     if (companiaIdToLink) {
       // Lógica para VINCULAR usuario a compañía
       updatedUser = await db.user.update({
         where: { id: userIdToUpdate },
         data: {
-          rol: rol, // Asigna el rol
+          rol: rol, // Asigna el rol global
           companias: {
             connect: { id: companiaIdToLink }
           }
         },
+        include: includeCompaniaData // <--- AÑADIDO
       });
     } else {
       // Lógica para ACTUALIZAR un usuario existente
-      
-      // 1. Construir el payload de datos dinámicamente
       const updateData: { 
         rol?: string, 
         activo?: boolean, 
@@ -45,56 +98,60 @@ export async function PATCH(
 
       if (rol) updateData.rol = rol;
       if (activo !== undefined) updateData.activo = activo;
-
-      // 2. Manejar el clerkId (permite setear o limpiar)
       if (clerkId !== undefined) {
-        // Si es un string vacío, lo seteamos a null en la DB
         updateData.clerkId = clerkId === "" ? null : clerkId;
       }
 
-      // 3. Ejecutar la actualización en Prisma
       updatedUser = await db.user.update({
         where: { id: userIdToUpdate },
-        data: updateData, // Pasa los datos dinámicos
+        data: updateData,
+        include: includeCompaniaData // <--- AÑADIDO
       });
     }
-    // --- FIN DE LA ACTUALIZACIÓN ---
 
-    // Devolver solo datos seguros
     const { hashedPassword, ...safeUser } = updatedUser;
     return NextResponse.json(safeUser);
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error updating user:', error);
-    // Manejo de error si el clerkId ya existe (Unique constraint)
-    // @ts-ignore
     if (error.code === 'P2002' && error.meta?.target?.includes('clerkId')) {
       return NextResponse.json({ error: 'Ese Clerk ID ya está en uso por otro usuario.' }, { status: 409 });
     }
-    return NextResponse.json({ error: 'Failed to update user' }, { status: 500 });
+    return NextResponse.json({ error: 'Error al actualizar el usuario' }, { status: 500 });
   }
 }
 
-// ... (El método DELETE para desvincular sigue igual) ...
+// --- MÉTODO DELETE (Desvincular) ---
+// (Este método no necesita cambios, ya que solo devuelve un mensaje de éxito, 
+// y el frontend simplemente elimina al usuario de la lista)
 export async function DELETE(
   request: Request, 
   { params }: { params: { id: string } }
 ) {
   try {
-    const { userId: requestingUserId } = await auth();
-    if (!requestingUserId) {
+    const { userId: requestingClerkId } = await auth();
+    if (!requestingClerkId) {
       return new NextResponse("Unauthorized", { status: 401 });
+    }
+    const requestingUser = await db.user.findUnique({
+      where: { clerkId: requestingClerkId },
+    });
+    if (!requestingUser) {
+      return new NextResponse("Forbidden: Usuario no encontrado en DB", { status: 403 });
+    }
+
+    const userIdToUnlink = params.id;
+    if (requestingUser.id === userIdToUnlink) {
+      return NextResponse.json({ error: "No puede desvincularse a sí mismo." }, { status: 403 });
     }
     
     const data = await request.json();
-    const userIdToUnlink = params.id;
     const { companiaIdToUnlink } = data;
 
     if (!companiaIdToUnlink) {
         return NextResponse.json({ error: 'Missing companiaIdToUnlink' }, { status: 400 });
     }
 
-    // Lógica para DESVINCULAR usuario de compañía
     await db.user.update({
         where: { id: userIdToUnlink },
         data: {
@@ -108,6 +165,6 @@ export async function DELETE(
 
   } catch (error) {
     console.error('Error unlinking user:', error);
-    return NextResponse.json({ error: 'Failed to unlink user' }, { status: 500 });
+    return NextResponse.json({ error: 'Error al desvincular el usuario' }, { status: 500 });
   }
 }

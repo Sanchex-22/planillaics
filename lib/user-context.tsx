@@ -5,17 +5,17 @@ import { toast } from '@/components/ui/use-toast';
 import { User } from '@/lib/types';
 import { usePayroll } from './payroll-context';
 
-// Definiendo el tipo parcial para la actualización
-type UserUpdateData = Partial<Omit<User, 'id' | 'companias'>>; // Acepta rol, activo, clerkId, etc.
+// Datos parciales para la actualización
+type UserUpdateData = Partial<Omit<User, 'id' | 'companias'>>; // Acepta rol, activo, clerkId
 
 interface UserContextType {
-  users: User[]; 
-  unassignedUsers: User[]; 
+  users: User[]; // Usuarios ASIGNADOS a la compañía
+  unassignedUsers: User[]; // Usuarios NO ASIGNADOS (para el modal)
   isLoading: boolean;
   fetchUsers: () => Promise<void>;
   fetchUnassignedUsers: () => Promise<void>;
-  linkUserToCompany: (userId: string, rol: 'admin' | 'contador' | 'user') => Promise<void>;
-  updateUser: (id: string, userData: UserUpdateData) => Promise<void>; // <-- RENOMBRADO Y ACTUALIZADO
+  linkUserToCompany: (userId: string, rol: 'admin' | 'contador' | 'user' | 'super_admin') => Promise<void>;
+  updateUser: (id: string, userData: UserUpdateData) => Promise<void>;
   unlinkUserFromCompany: (id: string) => Promise<void>;
 }
 
@@ -27,13 +27,14 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
   const { currentCompany } = usePayroll();
 
-  // ... (fetchUsers y fetchUnassignedUsers sin cambios) ...
+  // 1. Obtener usuarios YA ASIGNADOS a esta compañía
   const fetchUsers = useCallback(async () => {
     if (!currentCompany?.id) {
         setUsers([]);
         setIsLoading(false);
         return;
     };
+    
     setIsLoading(true);
     try {
       const res = await fetch(`/api/users?companiaId=${currentCompany.id}`);
@@ -48,6 +49,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [currentCompany?.id]);
 
+  // 2. Obtener usuarios NO ASIGNADOS a esta compañía
   const fetchUnassignedUsers = useCallback(async () => {
     if (!currentCompany?.id) return;
     try {
@@ -65,73 +67,79 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     fetchUsers();
   }, [fetchUsers]);
 
-  // ... (linkUserToCompany sin cambios) ...
-  const linkUserToCompany = async (userId: string, rol: 'admin' | 'contador' | 'user') => {
+  // 3. VINCULAR un usuario existente a esta compañía
+  const linkUserToCompany = async (userId: string, rol: 'admin' | 'contador' | 'user' | 'super_admin') => {
     if (!currentCompany?.id) {
          toast({ title: "Error", description: "No hay compañía seleccionada.", variant: "destructive" });
          return;
     }
+    
     try {
       const res = await fetch(`/api/users/${userId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
             rol: rol, 
-            companiaIdToLink: currentCompany.id 
+            companiaIdToLink: currentCompany.id
         }),
       });
-      if (!res.ok) throw new Error('Error al vincular usuario');
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Error al vincular usuario');
+      }
       const updatedUser = await res.json();
+      
       setUsers((prev) => [...prev, updatedUser]);
       setUnassignedUsers((prev) => prev.filter((u) => u.id !== userId));
       toast({ title: "Usuario Asignado", description: "El usuario ha sido vinculado a esta compañía." });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      toast({ title: "Error", description: "No se pudo vincular el usuario.", variant: "destructive" });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   };
 
-
-  // --- ACTUALIZADO: 'updateUserRole' ahora es 'updateUser' ---
+  // 4. ACTUALIZAR rol, estado o clerkId de un usuario VINCULADO
   const updateUser = async (id: string, userData: UserUpdateData) => {
     try {
       const res = await fetch(`/api/users/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-            ...userData, // <-- Pasa el objeto completo (rol, activo, clerkId)
-            companiaIdToUpdate: currentCompany?.id // Contexto de compañía
+            ...userData,
+            companiaIdToUpdate: currentCompany?.id 
         }),
       });
-      if (!res.ok) throw new Error('Error al actualizar usuario');
+       if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Error al actualizar usuario');
+      }
       const updatedUser = await res.json();
-      
-      // Actualiza el estado local con los nuevos datos
       setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...updatedUser } : u)));
-      
       toast({ title: "Usuario Actualizado", description: "Los datos del usuario han sido guardados." });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      toast({ title: "Error", description: "No se pudo actualizar el usuario.", variant: "destructive" });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   };
-  // --- FIN DE LA ACTUALIZACIÓN ---
 
-  // ... (unlinkUserFromCompany sin cambios) ...
+  // 5. DESVINCULAR un usuario de esta compañía
   const unlinkUserFromCompany = async (id: string) => {
     if (!currentCompany?.id) return;
     try {
       const res = await fetch(`/api/users/${id}`, {
-        method: 'DELETE', 
+        method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companiaIdToUnlink: currentCompany.id })
       });
-      if (!res.ok) throw new Error('Error al desvincular usuario');
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Error al desvincular usuario');
+      }
       setUsers((prev) => prev.filter((u) => u.id !== id));
       toast({ title: "Usuario Desvinculado", description: "El usuario ha sido quitado de esta compañía." });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      toast({ title: "Error", description: "No se pudo desvincular el usuario.", variant: "destructive" });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   };
 
@@ -143,7 +151,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         fetchUsers, 
         fetchUnassignedUsers, 
         linkUserToCompany, 
-        updateUser, // <-- EXPORTA EL NUEVO NOMBRE
+        updateUser, 
         unlinkUserFromCompany 
     }}>
       {children}

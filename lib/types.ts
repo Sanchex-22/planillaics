@@ -1,5 +1,76 @@
 // Core data types for the payroll system
+// --- Definición simple para anidamiento ---
+interface SimpleCompany {
+  id: string;
+  nombre: string;
+}
 
+// --- Tu tipo Employee (sin cambios) ---
+export interface Employee {
+  id: string;
+  companiaId: string;
+  cedula: string;
+  nombre: string;
+  apellido: string | null;
+  fechaIngreso: string; // Asegúrate que sea string si viene de la API como ISO
+  salarioBase: number;
+  departamento: string | null;
+  cargo: string | null;
+  estado: string;
+  email: string | null;
+  telefono: string | null;
+  direccion: string | null;
+  deduccionesBancarias: number | null;
+  mesesDeduccionesBancarias: number[];
+  prestamos: number | null;
+  mesesPrestamos: number[];
+  otrasDeduccionesPersonalizadas: any; // O un tipo más específico
+}
+
+// --- Tipo Company (sin cambios) ---
+export interface Company {
+  id: string;
+  nombre: string;
+  ruc: string;
+  direccion?: string;
+  telefono?: string;
+  email?: string;
+  representanteLegal?: string;
+  activo: boolean;
+  fechaCreacion: string;
+}
+
+// --- Tipo User (ACTUALIZADO) ---
+export interface User {
+  id: string;
+  nombre: string;
+  email: string;
+  rol: 'super_admin' | 'admin' | 'contador' | 'user';
+  activo: boolean;
+  clerkId?: string | null; // Acepta null como en la API
+  image?: string;
+  companias?: SimpleCompany[]; // <--- AÑADIDO
+}
+
+// --- Otros tipos (LegalParameter, ISRBracket, etc.) ---
+export interface LegalParameter {
+  id: string;
+  companiaId: string;
+  nombre: string;
+  tipo: string;
+  porcentaje: number;
+  activo: boolean;
+  fechaVigencia: string;
+}
+
+export interface ISRBracket {
+  id: string;
+  companiaId: string;
+  desde: number;
+  hasta: number | null;
+  porcentaje: number;
+  deduccionFija: number;
+}
 export interface Company {
   id: string
   nombre: string
@@ -11,42 +82,6 @@ export interface Company {
   activo: boolean
   fechaCreacion: string
 }
-
-export interface User {
-  id: string
-  nombre: string
-  email: string
-  rol: "super_admin" | "moderator" | "admin"
-  companias: string[] // Array of company IDs the user has access to
-  activo: boolean
-  imageUrl?: string
-  clerkId?: string| null
-}
-
-export interface Employee {
-  id: string
-  companiaId: string
-  cedula: string
-  nombre: string
-  apellido: string
-  fechaIngreso: string
-  salarioBase: number
-  ingresoAcumulado?: number // Total accumulated income since hire date
-  ultimaActualizacionIngreso?: string // Last date income was updated
-  departamento: string
-  cargo: string
-  estado: "activo" | "inactivo"
-  email?: string
-  telefono?: string
-  direccion?: string
-  deduccionesBancarias?: number
-  mesesDeduccionesBancarias?: number[]
-  prestamos?: number
-  mesesPrestamos?: number[]
-  otrasDeduccionesPersonalizadas?: EmployeeDeduction[]
-}
-
-// File: lib/types.ts (Asegúrate de que coincida con lo que tu frontend/backend espera)
 
 export interface EmployeeDeduction {
   // Asegúrate de que estos campos existan y sean correctos
