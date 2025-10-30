@@ -20,7 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatCurrency } from "@/lib/utils";
-import { DecimoTercerMes, Employee } from "@/lib/types";
+import { DecimoTercerMes } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   Loader2,
@@ -376,8 +376,8 @@ export default function DecimoTercerMesPage() {
                 disabled={
                   isCalculating ||
                   !currentCompany ||
-                  activeEmployees.length === 0 ||
-                  isYearClosed
+                  activeEmployees.length === 0
+                  // activeEmployees.length === 0 || isYearClosed
                 }
               >
                 {isCalculating ? (
@@ -441,7 +441,8 @@ export default function DecimoTercerMesPage() {
                 <Button
                   onClick={() => handleSaveDecimo("pagado_completo")}
                   className="gap-2"
-                  disabled={isSaving || isYearClosed}
+                  disabled={isSaving}
+                  // disabled={isSaving || isYearClosed}
                 >
                   {isSaving ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
