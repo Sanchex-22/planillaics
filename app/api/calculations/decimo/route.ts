@@ -31,16 +31,6 @@ export async function POST(request: Request) {
     // 1. Determinar los meses del cuatrimestre a consultar
     let mesesCuatrimestre: string[] = []
     
-    // --- CORRECCIÓN AQUÍ ---
-    // La lógica de los meses estaba mal. 
-    // El pago de Abril usa la historia de Dic, Ene, Feb, Mar.
-    // El pago de Agosto usa la historia de Abr, May, Jun, Jul.
-    // El pago de Diciembre usa la historia de Ago, Sep, Oct, Nov.
-    // (Ajusta esto si tu lógica de negocio es diferente, ej. Ene-Abr)
-    
-    // Asumiré la lógica más común: Ene-Abr (pago Abril), May-Ago (pago Ago), Sep-Dic (pago Dic)
-    // (Tu código original parecía seguir esta lógica, así que la mantendré)
-
     if (month === 4) {
       // Partida 1 (Ene, Feb, Mar, Abr)
       mesesCuatrimestre = [`${year}-01`, `${year}-02`, `${year}-03`, `${year}-04`]
@@ -92,7 +82,7 @@ export async function POST(request: Request) {
       payrollEntriesCuatrimestre: payrollEntries as any, // El historial
       legalParameters: legalParameters as any,
     })
-
+    console.log('Décimo calculation result:', result);
     // Devolvemos el resultado individual de ESE período
     return NextResponse.json(result)
 

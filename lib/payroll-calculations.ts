@@ -182,7 +182,19 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
     seguroSocialEmpleado + seguroEducativoEmpleado + isrPeriodo + (otrasRetenciones || 0)
   );
   const salarioNeto = round(salarioBruto - descuentosEmpleado);
-
+  console.log(
+    periodo,
+    tipoPeriodo,
+    salarioBasePeriodo,
+    salarioBruto,
+    seguroSocialEmpleado,
+    seguroSocialEmpleador,
+    seguroEducativoEmpleado,
+    seguroEducativoEmpleador,
+    riesgoProfesional,
+    otrasRetenciones,
+    salarioNeto,
+  )
   return {
     periodo,
     tipoPeriodo,

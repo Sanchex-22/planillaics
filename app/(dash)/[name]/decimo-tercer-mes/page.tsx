@@ -69,6 +69,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { ca, se } from "date-fns/locale";
 
 // Interfaz para el cálculo temporal (le añadimos el nombre y la cédula para la tabla)
 interface CalculatedDecimo extends DecimoTercerMes {
@@ -91,14 +92,10 @@ export default function DecimoTercerMesPage() {
   // Fallback para arrays del contexto
   const employees = employeesContext || [];
   const decimoEntries = decimoEntriesContext || [];
-  const [calculatedDecimos, setCalculatedDecimos] = useState<
-    CalculatedDecimo[]
-  >([]);
+  const [calculatedDecimos, setCalculatedDecimos] = useState<CalculatedDecimo[]>([]);
   const [isCalculating, setIsCalculating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [selectedEmployeeDetail, setSelectedEmployeeDetail] =
-    useState<CalculatedDecimo | null>(null);
-
+  const [selectedEmployeeDetail, setSelectedEmployeeDetail] = useState<CalculatedDecimo | null>(null);
   // Se usa currentYear del contexto para filtrar y en el useEffect
   const entriesForCurrentYear = useMemo(
     () => decimoEntries.filter((e) => e.anio === currentYear),
@@ -120,11 +117,12 @@ export default function DecimoTercerMesPage() {
     () => calculatedDecimos.reduce((sum, item) => sum + item.montoNeto, 0),
     [calculatedDecimos]
   );
+  console.log('Total Décimo Neto:', totalDecimoNeto);
   const totalDecimoBruto = useMemo(
     () => calculatedDecimos.reduce((sum, item) => sum + item.montoTotal, 0),
     [calculatedDecimos]
   );
-
+  console.log('Total Décimo Bruto:', totalDecimoBruto);
   // Efecto para sincronizar los cálculos con las entradas existentes
   useEffect(() => {
     if (entriesForCurrentYear.length > 0) {
@@ -174,7 +172,7 @@ export default function DecimoTercerMesPage() {
         const result = await calculateDecimoApi(
           String(employee.id),
           String(currentCompany.id),
-          String(currentYear)
+          Number(currentYear)
         );
         const decimoEntry: CalculatedDecimo = {
           ...result,

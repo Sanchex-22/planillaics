@@ -138,16 +138,13 @@ export default function UsuariosPage() {
                                   </Tooltip>
                                 );
                               })}
-                              {/* Esto no debería mostrarse si la lógica de la API es correcta, pero es un buen fallback */}
                               {allAssignedCompanies.length === 0 && (
                                 <span className="text-xs text-muted-foreground">N/A</span>
                               )}
                             </div>
                           </TableCell>
-                          {/* ----------------------------------- */}
                           
                           <TableCell className="text-right space-x-2">
-                            {/* ... (Tooltips y botones sin cambios) ... */}
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span tabIndex={isCurrentUser ? -1 : 0}>
