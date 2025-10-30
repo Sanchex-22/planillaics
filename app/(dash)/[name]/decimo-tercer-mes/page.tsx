@@ -23,10 +23,8 @@ import { formatCurrency } from "@/lib/utils";
 import { DecimoTercerMes, Employee } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
-  Check,
   Loader2,
   Save,
-  Trash2,
   Calculator,
   DollarSign,
   Eye,
@@ -35,20 +33,7 @@ import {
   Calendar,
   AlertCircle,
 } from "lucide-react";
-import { MonthSelector } from "@/components/month-selector";
-import { Badge } from "@/components/ui/badge";
-import { Spinner } from "@/components/ui/spinner";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+
 import { toast } from "@/components/ui/use-toast";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
@@ -70,6 +55,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { ca, se } from "date-fns/locale";
+import { Badge } from "@/components/ui/badge";
 
 // Interfaz para el cálculo temporal (le añadimos el nombre y la cédula para la tabla)
 interface CalculatedDecimo extends DecimoTercerMes {
